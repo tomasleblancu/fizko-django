@@ -70,11 +70,9 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 # Add production-specific apps for Railway
 if IS_RAILWAY:
-    INSTALLED_APPS += [
-        'django_health_check',
-        'health_check.db',
-        'health_check.cache',
-    ]
+    # Note: django_health_check not included in requirements.txt
+    # Using simple health endpoint instead
+    pass
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',

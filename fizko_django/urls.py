@@ -49,9 +49,7 @@ if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
-# Add health check apps in production
-if 'django_health_check' in settings.INSTALLED_APPS:
-    urlpatterns.append(path('ht/', include('health_check.urls')))
+# Simple health endpoint is already configured above at /health/
 
 # Admin site customization
 admin.site.site_header = 'Fizko Administration'
