@@ -465,7 +465,7 @@ WHATSAPP_CLEANUP_TEST_EVENTS_DAYS = config('WHATSAPP_CLEANUP_TEST_EVENTS_DAYS', 
 
 # Sentry configuration for error tracking (Railway only)
 SENTRY_DSN = config('SENTRY_DSN', default='')
-if SENTRY_DSN and IS_RAILWAY:
+if SENTRY_DSN and SENTRY_DSN.startswith(('http://', 'https://')) and IS_RAILWAY:
     import sentry_sdk
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.integrations.celery import CeleryIntegration
