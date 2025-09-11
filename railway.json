@@ -7,8 +7,6 @@
   "deploy": {
     "numReplicas": 1,
     "startCommand": "./scripts/start-dynamic.sh",
-    "healthcheckPath": "/health/",
-    "healthcheckTimeout": 100,
     "sleepApplication": false
   },
   "environments": {
