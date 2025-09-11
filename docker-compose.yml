@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: fizko_db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fizko_db}
+      POSTGRES_USER: ${DB_USER:-fizko}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fizko_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fizko}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para cache y Celery
+  redis:
+    image: redis:7-alpine
+    container_name: fizko_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aplicación Django
+  django:
+    build: .
+    container_name: fizko_django
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+      - media_volume:/app/media
+    ports:
+      - "${DJANGO_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+      - SII_USE_REAL_SERVICE=${SII_USE_REAL_SERVICE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Worker Celery para SII
+  celery_sii:
+    build: .
+    container_name: fizko_celery_sii
+    command: celery -A fizko_django worker -Q sii -l info -n sii_worker --concurrency=2
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Worker Celery para documentos
+  celery_documents:
+    build: .
+    container_name: fizko_celery_documents
+    command: celery -A fizko_django worker -Q documents -l info -n documents_worker --concurrency=4
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Worker Celery general
+  celery_default:
+    build: .
+    container_name: fizko_celery_default
+    command: celery -A fizko_django worker -Q default,forms,analytics,notifications -l info -n default_worker --concurrency=3
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Worker Celery para WhatsApp
+  celery_whatsapp:
+    build: .
+    container_name: fizko_celery_whatsapp
+    command: celery -A fizko_django worker -Q whatsapp -l info -n whatsapp_worker --concurrency=2
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Celery Beat para tareas periódicas
+  celery_beat:
+    build: .
+    container_name: fizko_celery_beat
+    command: celery -A fizko_django beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # Flower para monitoreo de Celery
+  flower:
+    build: .
+    container_name: fizko_flower
+    command: celery -A fizko_django flower --port=5555 --url-prefix=flower
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=fizko_django.settings.development
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ngrok para desarrollo (túnel público con dominio fijo)
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: fizko_ngrok
+    restart: unless-stopped
+    command: http django:8000 --url=${NGROK_FIXED_URL:-balanced-elk-awaited.ngrok-free.app} --log=stdout
+    ports:
+      - "4040:4040"  # Dashboard de ngrok
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN:-}
+      - NGROK_REGION=${NGROK_REGION:-us}
+    depends_on:
+      - django
+    profiles:
+      - development
+
+  # Nginx (opcional para producción)
+  nginx:
+    image: nginx:alpine
+    container_name: fizko_nginx
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - static_volume:/static
+      - media_volume:/media
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    depends_on:
+      - django
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:

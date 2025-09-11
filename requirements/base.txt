@@ -1,0 +1,50 @@
+# Django y core (usando 4.2 LTS por compatibilidad con celery-beat)
+Django==4.2.11
+djangorestframework==3.14.0
+djangorestframework-simplejwt==5.3.0
+django-filter==23.5
+django-cors-headers==4.3.1
+
+# Base de datos
+psycopg2-binary==2.9.9
+redis==5.0.1
+
+# Celery
+celery==5.3.6
+django-celery-beat==2.5.0
+django-celery-results==2.5.0
+flower==2.0.1
+
+# Autenticación y seguridad
+cryptography==42.0.2
+PyJWT==2.8.0
+
+# Web scraping
+selenium==4.17.2
+beautifulsoup4==4.12.2
+requests==2.31.0
+webdriver-manager==4.0.1
+
+# OpenAI
+openai==1.12.0
+
+# Utilidades
+python-decouple==3.8
+Pillow==10.2.0
+python-dateutil==2.8.2
+
+# Formateadores y validadores
+phonenumbers==8.13.27
+validators==0.22.0
+
+# Exportación
+openpyxl==3.1.2
+reportlab==4.0.9
+
+# Logging y monitoreo
+sentry-sdk[django]==1.40.6
+
+# Calidad de código
+flake8==7.0.0
+black==24.1.1
+isort==5.13.2
