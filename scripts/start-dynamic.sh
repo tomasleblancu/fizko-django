@@ -10,42 +10,19 @@ if [ -n "$START_COMMAND" ]; then
     if [[ "$START_COMMAND" == *"worker"* ]] || [[ "$START_COMMAND" == *"beat"* ]]; then
         echo "📡 Servicio Celery detectado - iniciando endpoint dummy"
         
-        # Iniciar servidor HTTP simple en background para healthcheck
-        python3 -c "
-import http.server
-import socketserver
-import threading
-import time
-
-class HealthHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/health/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'OK')
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def log_message(self, format, *args):
-        pass  # Silenciar logs
-
-def start_server():
-    try:
-        with socketserver.TCPServer(('0.0.0.0', 8080), HealthHandler) as httpd:
-            httpd.serve_forever()
-    except:
-        pass
-
-# Iniciar servidor en background
-server_thread = threading.Thread(target=start_server, daemon=True)
-server_thread.start()
-print('Health endpoint iniciado en puerto 8080')
-" &
+        # Iniciar servidor de health en background
+        python3 ./scripts/health-server.py &
+        HEALTH_PID=$!
         
         # Esperar un poco para que el servidor inicie
-        sleep 2
+        sleep 3
+        
+        # Verificar que el servidor esté funcionando
+        if curl -f http://localhost:8080/health/ > /dev/null 2>&1; then
+            echo "✅ Health endpoint funcionando"
+        else
+            echo "❌ Health endpoint no responde"
+        fi
     fi
     
     exec $START_COMMAND
