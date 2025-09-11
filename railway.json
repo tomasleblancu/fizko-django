@@ -6,7 +6,7 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "startCommand": "${START_COMMAND:-./scripts/start-web.sh}",
+    "startCommand": "./scripts/start-dynamic.sh",
     "healthcheckPath": "/health/",
     "healthcheckTimeout": 100,
     "sleepApplication": false
@@ -14,7 +14,7 @@
   "environments": {
     "production": {
       "variables": {
-        "DJANGO_SETTINGS_MODULE": "fizko_django.settings.railway",
+        "DJANGO_SETTINGS_MODULE": "fizko_django.settings",
         "DEBUG": "False",
         "SII_USE_REAL_SERVICE": "true"
       }
