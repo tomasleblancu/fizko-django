@@ -7,7 +7,7 @@ import sys
 import django
 
 # Configurar Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fizko_django.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fizko_django.settings')
 sys.path.insert(0, '/app')
 django.setup()
 

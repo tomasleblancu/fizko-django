@@ -7,7 +7,7 @@ from celery.schedules import crontab
 from django.conf import settings
 
 # Set Django settings module for Celery
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fizko_django.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fizko_django.settings')
 
 # Create Celery app
 app = Celery('fizko_django')
