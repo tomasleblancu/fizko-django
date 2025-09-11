@@ -1,0 +1,25 @@
+{
+  "name": "fizko-django",
+  "description": "Fizko Django Backend API",
+  "keywords": ["django", "python", "api", "chile", "accounting"],
+  "website": "https://fizko.cl",
+  "repository": "https://github.com/akashi-labs/fizko",
+  "buildpacks": [],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "env": {
+    "DJANGO_SETTINGS_MODULE": {
+      "value": "fizko_django.settings.railway"
+    },
+    "DEBUG": {
+      "value": "False"
+    }
+  },
+  "scripts": {
+    "postdeploy": "python manage.py migrate"
+  }
+}

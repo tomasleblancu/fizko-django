@@ -1,0 +1,2 @@
+# This file forces Nixpacks to recognize this directory as the project root
+# Railway should use this directory (/fizko_django) not subdirectories

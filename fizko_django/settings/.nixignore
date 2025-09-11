@@ -1,0 +1,2 @@
+# This directory should be ignored by Nixpacks auto-detection
+# The main project is in the parent directory with manage.py

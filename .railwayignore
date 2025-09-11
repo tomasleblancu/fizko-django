@@ -1,6 +1,8 @@
-# Ignore nested Django settings directory to prevent wrong detection
-fizko_django/settings/
-fizko_django/__pycache__/
+# CRITICAL: Ignore nested Django project directory to prevent wrong detection
+fizko_django/
+!fizko_django/wsgi.py
+!fizko_django/urls.py
+!fizko_django/celery.py
 
 # Development files
 .env
