@@ -8,6 +8,7 @@ django-cors-headers==4.3.1
 # Base de datos
 psycopg2-binary==2.9.9
 redis==5.0.1
+dj-database-url==2.1.0
 
 # Celery
 celery==5.3.6
@@ -48,3 +49,25 @@ sentry-sdk[django]==1.40.6
 flake8==7.0.0
 black==24.1.1
 isort==5.13.2
+
+# Production server
+gunicorn==21.2.0
+
+# Static files
+whitenoise==6.6.0
+
+# Health checks
+django-health-check==3.17.0
+
+# Redis cache (Railway compatible)
+django-redis==5.4.0
+
+# Rate limiting
+django-ratelimit==4.1.0
+
+# Testing (for Railway CI/CD if needed)
+pytest==8.0.0
+pytest-django==4.8.0
+
+# Debugging tools for production troubleshooting
+django-extensions==3.2.3

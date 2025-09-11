@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copiar requirements e instalar dependencias Python
-COPY requirements/ /app/requirements/
-RUN pip install --no-cache-dir -r requirements/railway.txt
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código fuente
 COPY . /app/
