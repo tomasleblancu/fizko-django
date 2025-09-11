@@ -6,7 +6,7 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "startCommand": "./scripts/start-web.sh",
+    "startCommand": "${START_COMMAND:-./scripts/start-web.sh}",
     "healthcheckPath": "/health/",
     "healthcheckTimeout": 100,
     "sleepApplication": false
