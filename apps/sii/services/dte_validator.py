@@ -107,19 +107,26 @@ class DTEValidator:
     def _validate_rpa_format(self, dte_data: Dict) -> bool:
         """
         Valida un DTE en formato RPA (procesado).
-        
+
         Args:
             dte_data: Datos del DTE en formato RPA
-            
+
         Returns:
             True si es válido, False si no lo es
         """
         # Campos mínimos requeridos para formato RPA
         required_fields = ['folio']
-        
+
+        # Log específico para documentos sintéticos tipo 48
+        if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+            logger.info(f"🔍 Validando documento sintético tipo 48 - Folio: {dte_data.get('folio')}")
+            logger.debug(f"📋 Datos del documento sintético: {dte_data}")
+
         for field in required_fields:
             if field not in dte_data:
                 self.last_error = f"Campo requerido '{field}' no encontrado en DTE formato RPA"
+                if dte_data.get('tipo_documento') == '48':
+                    logger.error(f"❌ Documento sintético tipo 48 falta campo {field}")
                 return False
         
         # Validar folio
@@ -140,8 +147,14 @@ class DTEValidator:
         
         # Validar montos si existen
         if not self._validate_montos_rpa(dte_data):
+            if dte_data.get('tipo_documento') == '48':
+                logger.error(f"❌ Documento sintético tipo 48 falló validación de montos")
             return False
-        
+
+        # Log éxito para documentos sintéticos tipo 48
+        if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+            logger.info(f"✅ Documento sintético tipo 48 validado correctamente")
+
         return True
     
     def _validate_folio(self, folio: Any) -> bool:

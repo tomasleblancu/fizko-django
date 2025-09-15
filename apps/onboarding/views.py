@@ -102,24 +102,11 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
     def finalize(self, request):
         """
         Finaliza el onboarding asegurándose de que la empresa esté creada
+        SEGURIDAD: Siempre verifica credenciales antes de asignar empresa
         """
         user_email = request.user.email
         
         try:
-            # Verificar si ya tiene empresa creada
-            from apps.companies.models import Company
-            existing_companies = Company.objects.filter(
-                taxpayer_sii_credentials__user__email=user_email
-            )
-            
-            if existing_companies.exists():
-                return Response({
-                    'status': 'success',
-                    'message': 'Usuario ya tiene empresa creada',
-                    'company_id': existing_companies.first().id,
-                    'company_name': existing_companies.first().business_name
-                })
-            
             # Buscar datos del paso de empresa completado
             company_step_data = UserOnboarding.objects.filter(
                 user_email=user_email,
@@ -134,34 +121,78 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     'required_fields': ['business_name', 'tax_id', 'password', 'email']
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Verificar si ya se creó la empresa desde el paso
-            if company_step_data.step_data.get('company_creation_result'):
-                creation_result = company_step_data.step_data['company_creation_result']
-                if creation_result.get('status') == 'success':
-                    return Response({
-                        'status': 'success',
-                        'message': 'Empresa ya fue creada durante el onboarding',
-                        'creation_result': creation_result
-                    })
+            # PASO CRÍTICO DE SEGURIDAD: Verificar credenciales ANTES de cualquier operación
+            step_data = company_step_data.step_data
+            credentials_valid = self._verify_sii_credentials(step_data)
             
-            # Crear empresa si no existe
-            company_result = self._create_company_from_onboarding(request, company_step_data.step_data)
+            if credentials_valid.get('error'):
+                return Response({
+                    'error': 'INVALID_CREDENTIALS',
+                    'message': 'No se puede finalizar onboarding con credenciales SII inválidas',
+                    'details': credentials_valid.get('message'),
+                    'credential_error': credentials_valid.get('error')
+                }, status=status.HTTP_400_BAD_REQUEST)
             
-            if company_result.get('error'):
-                return Response(company_result, status=status.HTTP_400_BAD_REQUEST)
+            # Solo después de verificar credenciales, verificar si ya tiene empresa
+            from apps.companies.models import Company
+            tax_id = step_data.get('tax_id')
             
-            # Actualizar step_data con resultado
-            company_step_data.step_data['company_creation_result'] = company_result
-            company_step_data.save()
+            # Verificar si el usuario ya está asociado a esta empresa específica
+            existing_user_company = Company.objects.filter(
+                tax_id=tax_id,
+                taxpayer_sii_credentials__user__email=user_email
+            ).first()
+            
+            if existing_user_company:
+                return Response({
+                    'status': 'success',
+                    'message': 'Usuario ya tiene acceso a esta empresa',
+                    'company_id': existing_user_company.id,
+                    'company_name': existing_user_company.business_name,
+                    'verification_status': 'credentials_verified'
+                })
+            
+            # Verificar si ya se creó la empresa durante el paso de credenciales
+            company_creation_result = company_step_data.step_data.get('company_creation_result')
+            
+            if company_creation_result and company_creation_result.get('status') == 'success':
+                # Empresa ya fue creada durante el update_step del paso de empresa
+                company_result = company_creation_result
+                message = 'Empresa fue creada exitosamente durante el proceso de onboarding'
+            else:
+                # Fallback: crear empresa si por alguna razón no se creó antes
+                # (esto no debería pasar con el nuevo flujo, pero es seguridad adicional)
+                company_result = self._create_or_assign_company_from_onboarding(request, step_data)
+                
+                if company_result.get('error'):
+                    return Response(company_result, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Actualizar step_data con resultado
+                company_step_data.step_data['company_creation_result'] = company_result
+                company_step_data.save()
+                message = 'Empresa creada durante finalización del onboarding'
             
             # Marcar onboarding como completado
             self.complete(request)
             
+            # INICIAR SINCRONIZACIÓN HISTÓRICA COMPLETA al finalizar onboarding
+            company_id = None
+            if company_result.get('company_data') and company_result['company_data'].get('company_id'):
+                company_id = company_result['company_data']['company_id']
+            elif existing_user_company:
+                company_id = existing_user_company.id
+            
+            historical_sync_result = None
+            if company_id:
+                historical_sync_result = self._start_complete_historical_sync(company_id)
+            
             return Response({
                 'status': 'success',
-                'message': 'Onboarding finalizado exitosamente.',
+                'message': message,
                 'company_result': company_result,
-                'finalized_at': timezone.now()
+                'historical_sync_result': historical_sync_result,
+                'finalized_at': timezone.now(),
+                'next_steps': 'Su historial contable completo se está procesando en segundo plano. Puede comenzar a usar la plataforma con los datos recientes ya disponibles.'
             })
             
         except Exception as e:
@@ -202,22 +233,37 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             if new_status == 'completed':
                 user_onboarding.completed_at = timezone.now()
                 
-                # INTEGRACIÓN ESPECIAL: Si es el paso de empresa, crear empresa con SII
+                # SEGURIDAD CRÍTICA: Si es el paso de empresa, verificar credenciales PRIMERO
                 if step.name == 'company' and step_data:
-                    company_result = self._create_company_from_onboarding(request, step_data)
+                    # Verificar credenciales antes de cualquier operación
+                    credentials_valid = self._verify_sii_credentials(step_data)
+                    
+                    if credentials_valid.get('error'):
+                        return Response({
+                            'error': 'INVALID_CREDENTIALS',
+                            'message': 'No se puede completar el paso con credenciales SII inválidas',
+                            'details': credentials_valid.get('message'),
+                            'step': step.name
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # CREAR EMPRESA INMEDIATAMENTE después de verificar credenciales
+                    company_result = self._create_or_assign_company_from_onboarding(request, step_data)
+                    
                     if company_result.get('error'):
-                        # Si la empresa ya existe, es OK - no es un error bloqueante
-                        if company_result.get('error') == 'COMPANY_EXISTS':
-                            step_data['company_creation_result'] = {
-                                'status': 'exists',
-                                'message': 'Empresa ya existe, continuando con onboarding',
-                                'existing_company': True
-                            }
-                        else:
-                            return Response(company_result, status=status.HTTP_400_BAD_REQUEST)
-                    else:
-                        # Agregar resultado a step_data para guardarlo
-                        step_data['company_creation_result'] = company_result
+                        return Response({
+                            'error': 'COMPANY_CREATION_ERROR',
+                            'message': 'Error creando empresa después de verificar credenciales',
+                            'details': company_result.get('message'),
+                            'company_error': company_result.get('error')
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Guardar resultado de creación de empresa
+                    step_data['credential_verification'] = {
+                        'status': 'verified',
+                        'message': 'Credenciales SII verificadas exitosamente',
+                        'verified_at': timezone.now().isoformat()
+                    }
+                    step_data['company_creation_result'] = company_result
                     
             if step_data:
                 user_onboarding.step_data.update(step_data)
@@ -231,7 +277,222 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
     
-    def _create_company_from_onboarding(self, request, step_data):
+    def _verify_sii_credentials(self, step_data):
+        """
+        Verifica las credenciales SII de forma centralizada
+        Returns: dict con 'success': True o 'error': mensaje
+        """
+        try:
+            # Validar datos requeridos para verificación
+            required_fields = ['tax_id', 'password']
+            missing_fields = [field for field in required_fields if not step_data.get(field)]
+            
+            if missing_fields:
+                return {
+                    'error': 'MISSING_CREDENTIALS',
+                    'message': f'Faltan credenciales requeridas: {", ".join(missing_fields)}'
+                }
+            
+            from apps.sii.api.servicev2 import SIIServiceV2
+            
+            tax_id = step_data['tax_id']
+            password = step_data['password']
+            
+            # Crear servicio SII y verificar credenciales
+            sii_service = SIIServiceV2.crear_con_password(
+                tax_id=tax_id,
+                password=password,
+                validar_cookies=True,
+                auto_relogin=True
+            )
+            
+            # Consultar datos del contribuyente para verificar credenciales
+            response = sii_service.consultar_contribuyente()
+            
+            if response.get('status') != 'success':
+                return {
+                    'error': 'INVALID_CREDENTIALS',
+                    'message': f'Credenciales SII inválidas: {response.get("message", "Error desconocido")}'
+                }
+            
+            return {
+                'success': True,
+                'message': 'Credenciales SII válidas',
+                'sii_data': response.get('datos_contribuyente', {})
+            }
+            
+        except Exception as e:
+            return {
+                'error': 'VERIFICATION_ERROR',
+                'message': f'Error verificando credenciales SII: {str(e)}'
+            }
+
+    def _create_or_assign_company_from_onboarding(self, request, step_data):
+        """
+        Crea nueva empresa o asigna usuario a empresa existente
+        SOLO después de verificar credenciales SII
+        """
+        try:
+            # Validar datos requeridos
+            required_fields = ['business_name', 'tax_id', 'password', 'email']
+            missing_fields = [field for field in required_fields if not step_data.get(field)]
+            
+            if missing_fields:
+                return {
+                    'error': 'MISSING_REQUIRED_FIELDS',
+                    'message': f'Campos requeridos faltantes: {", ".join(missing_fields)}',
+                    'missing_fields': missing_fields
+                }
+            
+            from apps.companies.models import Company
+            from apps.taxpayers.models import TaxPayer, TaxpayerSiiCredentials
+            
+            tax_id = step_data['tax_id']
+            password = step_data['password']
+            business_name = step_data['business_name']
+            email = step_data['email']
+            mobile_phone = step_data.get('mobile_phone', '')
+            
+            # Verificar si la empresa ya existe
+            existing_company = Company.objects.filter(tax_id=tax_id).first()
+            
+            if existing_company:
+                # Empresa existe - verificar si el usuario ya está asociado
+                existing_credentials = TaxpayerSiiCredentials.objects.filter(
+                    company=existing_company,
+                    user=request.user
+                ).first()
+                
+                if existing_credentials:
+                    return {
+                        'status': 'success',
+                        'message': 'Usuario ya tiene acceso a esta empresa',
+                        'company_data': {
+                            'company_id': existing_company.id,
+                            'tax_id': existing_company.tax_id,
+                            'business_name': existing_company.business_name,
+                            'existing_company': True,
+                            'user_already_assigned': True
+                        }
+                    }
+                else:
+                    # Asignar usuario a empresa existente
+                    credentials = TaxpayerSiiCredentials.objects.create(
+                        company=existing_company,
+                        user=request.user,
+                        tax_id=tax_id
+                    )
+                    credentials.set_password(password)
+                    credentials.save()
+                    
+                    # CREAR ROL DE USUARIO: Asignar rol adecuado para empresa existente
+                    # Si es la primera vez que se conecta, podría ser owner, si ya existen owners, sería admin
+                    from apps.accounts.models import Role, UserRole
+                    
+                    # Asegurar que los roles existen
+                    self._ensure_default_roles_exist()
+                    
+                    # Verificar si ya hay owners en la empresa
+                    existing_owners = UserRole.objects.filter(
+                        company=existing_company,
+                        role__name='owner',
+                        active=True
+                    ).count()
+                    
+                    # Si no hay owners, este usuario se convierte en owner, sino admin
+                    role_name = 'owner' if existing_owners == 0 else 'admin'
+                    role = Role.objects.get(name=role_name)
+                    
+                    user_role, created = UserRole.objects.get_or_create(
+                        user=request.user,
+                        company=existing_company,
+                        role=role,
+                        defaults={'active': True}
+                    )
+                    
+                    return {
+                        'status': 'success',
+                        'message': 'Usuario asignado a empresa existente',
+                        'company_data': {
+                            'company_id': existing_company.id,
+                            'tax_id': existing_company.tax_id,
+                            'business_name': existing_company.business_name,
+                            'existing_company': True,
+                            'user_assigned': True,
+                            'user_role': role_name
+                        }
+                    }
+            
+            # Empresa no existe - crear nueva empresa completa
+            return self._create_new_company_from_onboarding(request, step_data)
+            
+        except Exception as e:
+            import traceback
+            return {
+                'error': 'COMPANY_ASSIGNMENT_ERROR',
+                'message': f'Error asignando o creando empresa: {str(e)}',
+                'traceback': traceback.format_exc()
+            }
+    
+    def _ensure_default_roles_exist(self):
+        """
+        Asegura que los roles por defecto existan en el sistema
+        """
+        from apps.accounts.models import Role
+        
+        default_roles = [
+            {
+                'name': 'owner',
+                'description': 'Propietario de la empresa con acceso completo',
+                'permissions': {
+                    'companies': ['view', 'edit', 'delete', 'manage_users'],
+                    'documents': ['view', 'create', 'edit', 'delete'],
+                    'forms': ['view', 'create', 'edit', 'submit'],
+                    'analytics': ['view', 'export'],
+                    'settings': ['view', 'edit'],
+                    'users': ['view', 'invite', 'edit', 'remove'],
+                    'billing': ['view', 'edit']
+                }
+            },
+            {
+                'name': 'admin',
+                'description': 'Administrador con permisos amplios pero limitados',
+                'permissions': {
+                    'companies': ['view', 'edit'],
+                    'documents': ['view', 'create', 'edit', 'delete'],
+                    'forms': ['view', 'create', 'edit', 'submit'],
+                    'analytics': ['view', 'export'],
+                    'settings': ['view'],
+                    'users': ['view', 'invite']
+                }
+            },
+            {
+                'name': 'user',
+                'description': 'Usuario básico con permisos de solo lectura/uso',
+                'permissions': {
+                    'companies': ['view'],
+                    'documents': ['view', 'create'],
+                    'forms': ['view', 'create', 'submit'],
+                    'analytics': ['view'],
+                    'settings': ['view'],
+                    'users': ['view']
+                }
+            }
+        ]
+        
+        for role_data in default_roles:
+            role, created = Role.objects.get_or_create(
+                name=role_data['name'],
+                defaults={
+                    'description': role_data['description'],
+                    'permissions': role_data['permissions'],
+                    'is_active': True
+                }
+            )
+            if created:
+                print(f"✅ Rol '{role.name}' creado exitosamente")
+
+    def _create_new_company_from_onboarding(self, request, step_data):
         """
         Crea la empresa con credenciales SII desde datos del onboarding
         """
@@ -250,6 +511,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Importar modelos necesarios
             from apps.companies.models import Company
             from apps.taxpayers.models import TaxPayer, TaxpayerSiiCredentials
+            from apps.accounts.models import Role, UserRole
             from apps.sii.api.servicev2 import SIIServiceV2
             
             tax_id = step_data['tax_id']
@@ -258,12 +520,11 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             email = step_data['email']
             mobile_phone = step_data.get('mobile_phone', '')
             
-            # Verificar si la compañía ya existe
-            if Company.objects.filter(tax_id=tax_id).exists():
-                return {
-                    'error': 'COMPANY_EXISTS',
-                    'message': f'Ya existe una compañía registrada con el RUT {tax_id}'
-                }
+            # Asegurar que los roles por defecto existen
+            self._ensure_default_roles_exist()
+            
+            # Las credenciales ya fueron verificadas en _verify_sii_credentials
+            # Proceder directamente a crear la empresa
             
             # Crear servicio SII y obtener datos del contribuyente
             sii_service = SIIServiceV2.crear_con_password(
@@ -335,6 +596,31 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             credentials.set_password(password)
             credentials.save()
             
+            # CREAR ROL DE USUARIO: Asignar al usuario como OWNER de la empresa
+            try:
+                owner_role = Role.objects.get(name='owner')
+                user_role, created = UserRole.objects.get_or_create(
+                    user=request.user,
+                    company=company,
+                    role=owner_role,
+                    defaults={'active': True}
+                )
+                if created:
+                    print(f"✅ Usuario {request.user.email} asignado como OWNER de {company.business_name}")
+                else:
+                    print(f"ℹ️ Usuario {request.user.email} ya era OWNER de {company.business_name}")
+            except Role.DoesNotExist:
+                print(f"⚠️ Rol 'owner' no existe - creando roles por defecto...")
+                self._ensure_default_roles_exist()
+                owner_role = Role.objects.get(name='owner')
+                user_role = UserRole.objects.create(
+                    user=request.user,
+                    company=company,
+                    role=owner_role,
+                    active=True
+                )
+                print(f"✅ Usuario {request.user.email} asignado como OWNER de {company.business_name}")
+            
             # Disparar sincronización inicial de DTEs inmediatamente después de crear la empresa
             dte_sync_result = self._start_initial_dte_sync(company.id)
             
@@ -347,8 +633,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     'business_name': company.business_name,
                     'display_name': company.display_name,
                     'razon_social': taxpayer.razon_social,
-                    'credentials_stored': True
+                    'credentials_stored': True,
+                    'user_role': 'owner'
                 },
+                'user_role_created': True,
                 'dte_sync_result': dte_sync_result
             }
                 
@@ -362,7 +650,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
     def _start_initial_dte_sync(self, company_id):
         """
-        Inicia la sincronización de DTEs del mes anterior para la nueva empresa
+        Inicia sincronización RÁPIDA de DTEs recientes para feedback inmediato
+        Solo obtiene documentos de los últimos 2 meses para mostrar datos rápido
         """
         try:
             from datetime import datetime, date, timedelta
@@ -371,19 +660,17 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Obtener la empresa
             company = Company.objects.get(id=company_id)
             
-            # Calcular fecha del mes anterior
+            # Calcular período de los últimos 2 meses para sync rápido
             today = date.today()
-            first_day_current_month = today.replace(day=1)
-            last_day_previous_month = first_day_current_month - timedelta(days=1)
-            first_day_previous_month = last_day_previous_month.replace(day=1)
+            fecha_hasta = today.strftime('%Y-%m-%d')
             
-            fecha_desde = first_day_previous_month.strftime('%Y-%m-%d')
-            fecha_hasta = last_day_previous_month.strftime('%Y-%m-%d')
+            # Ir 2 meses atrás
+            fecha_desde = (today - timedelta(days=60)).replace(day=1).strftime('%Y-%m-%d')
             
-            # Importar la tarea de Celery para sincronización SII
+            # Importar la tarea de Celery para sincronización de PERÍODO
             from apps.sii.tasks import sync_sii_documents_task
             
-            # Enviar tarea a Celery para procesamiento asíncrono
+            # Enviar tarea a Celery para procesamiento asíncrono RÁPIDO
             rut_parts = company.tax_id.split('-')
             task_result = sync_sii_documents_task.delay(
                 company_rut=rut_parts[0],  # RUT sin guión
@@ -392,20 +679,23 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 fecha_hasta=fecha_hasta,
                 user_email=getattr(self.request.user, 'email', 'system@fizko.com'),
                 priority='high',  # Alta prioridad por ser onboarding
-                description=f'Sincronización inicial onboarding - {company.business_name}'
+                description=f'Sincronización inicial rápida onboarding - {company.business_name}',
+                trigger_full_sync=True  # CRUCIAL: Disparar sync completo al finalizar
             )
             
             return {
                 'status': 'success',
-                'message': f'Sincronización de DTEs iniciada para período {fecha_desde} a {fecha_hasta}',
+                'message': 'Sincronización RÁPIDA de DTEs iniciada - se disparará historial completo al finalizar',
                 'task_id': task_result.id,
                 'company_id': company_id,
+                'sync_type': 'recent_period_with_full_trigger',
                 'sync_period': {
                     'fecha_desde': fecha_desde,
                     'fecha_hasta': fecha_hasta,
-                    'period_description': f'Mes anterior ({first_day_previous_month.strftime("%B %Y")})'
+                    'description': 'Últimos 2 meses'
                 },
-                'estimated_completion': '3-5 minutos'
+                'estimated_completion': '2-5 minutos para inicial, luego 15-30 minutos para historial completo',
+                'note': 'Sincronización rápida para mostrar datos inmediatos. Al finalizar, se disparará automáticamente la sincronización COMPLETA del historial desde inicio de actividades.'
             }
             
         except Company.DoesNotExist:
@@ -427,6 +717,65 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             return {
                 'error': 'DTE_SYNC_ERROR',
                 'message': f'Error iniciando sincronización de DTEs: {str(e)}',
+                'sync_status': 'failed',
+                'traceback': traceback.format_exc()
+            }
+
+    def _start_complete_historical_sync(self, company_id):
+        """
+        Inicia sincronización COMPLETA del historial de DTEs
+        Obtiene TODOS los documentos desde el inicio de actividades
+        Se ejecuta al FINALIZAR el onboarding completo
+        """
+        try:
+            from apps.companies.models import Company
+            
+            # Obtener la empresa
+            company = Company.objects.get(id=company_id)
+            
+            # Importar la tarea de Celery para sincronización COMPLETA
+            from apps.sii.tasks import sync_sii_documents_full_history_task
+            
+            # Enviar tarea a Celery para procesamiento asíncrono COMPLETO
+            rut_parts = company.tax_id.split('-')
+            task_result = sync_sii_documents_full_history_task.delay(
+                company_rut=rut_parts[0],  # RUT sin guión
+                company_dv=rut_parts[1] if len(rut_parts) > 1 else 'K',  # DV
+                user_email=getattr(self.request.user, 'email', 'system@fizko.com')
+            )
+            
+            return {
+                'status': 'success',
+                'message': 'Sincronización COMPLETA del historial iniciada - procesando TODOS los documentos históricos',
+                'task_id': task_result.id,
+                'company_id': company_id,
+                'sync_type': 'full_history',
+                'sync_period': {
+                    'description': 'Historial completo desde inicio de actividades'
+                },
+                'estimated_completion': '15-30 minutos (depende del volumen histórico)',
+                'note': 'Esta sincronización obtendrá todos los DTEs disponibles desde el inicio de actividades de la empresa'
+            }
+            
+        except Company.DoesNotExist:
+            return {
+                'error': 'COMPANY_NOT_FOUND',
+                'message': f'No se encontró la empresa con ID {company_id}',
+                'sync_status': 'failed'
+            }
+            
+        except ImportError as e:
+            return {
+                'error': 'TASK_IMPORT_ERROR', 
+                'message': f'Error importando tareas SII: {str(e)}',
+                'sync_status': 'failed'
+            }
+            
+        except Exception as e:
+            import traceback
+            return {
+                'error': 'HISTORICAL_SYNC_ERROR',
+                'message': f'Error iniciando sincronización histórica completa: {str(e)}',
                 'sync_status': 'failed',
                 'traceback': traceback.format_exc()
             }

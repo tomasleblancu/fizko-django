@@ -352,10 +352,159 @@ class DocumentSyncService:
             logger.error(f"❌ Error extrayendo documentos de compra período {periodo}: {str(e)}")
             return []
     
+    def _create_synthetic_document_type_48(
+        self,
+        resumen_item: Dict,
+        periodo: str,
+        task_id: Optional[str]
+    ) -> Dict:
+        """
+        Crea un documento sintético para tipo 48 (Comprobante de pago electrónico).
+        En lugar de extraer documentos individuales, usa los datos del resumen.
+
+        Args:
+            resumen_item: Item del resumen que contiene los datos agregados
+            periodo: Período tributario (YYYYMM)
+            task_id: ID de la tarea (opcional)
+
+        Returns:
+            Dict con el documento sintético
+        """
+        from datetime import datetime
+
+        # Convertir período a fecha (primer día del mes)
+        año = int(periodo[:4])
+        mes = int(periodo[4:6])
+        fecha_periodo = datetime(año, mes, 1).date().isoformat()
+
+        # Extraer datos del resumen
+        total_amount = resumen_item.get('rsmnMntTotal', 0)
+        cantidad_docs = resumen_item.get('rsmnTotDoc', 0)
+        nombre_tipo = resumen_item.get('dcvNombreTipoDoc', 'Comprobante de pago electrónico')
+
+        logger.info(f"   📄 Creando documento sintético tipo 48 para período {periodo}")
+        logger.info(f"      Total: ${total_amount:,.0f}, Cantidad: {cantidad_docs}")
+        logger.info(f"      Resumen original: {resumen_item}")
+
+        # Crear documento sintético en formato RPA compatible
+        doc_sintetico = {
+            # Metadatos de extracción
+            'tipo_operacion': 'emitidos',
+            'company_rut': self.full_rut,
+            'extraction_task_id': task_id,
+            'periodo_tributario': periodo,
+            'is_synthetic': True,
+
+            # Campos en formato RPA (esperados por DTEValidator y DTEMapper)
+            'folio': int(periodo),  # Campo requerido por validator
+            'tipo_documento': '48',  # Campo esperado por RPA format
+            'fecha_emision': fecha_periodo,  # Campo RPA
+            'monto_total': total_amount,  # Campo RPA
+            'monto_neto': 0,  # Campo RPA
+            'monto_iva': 0,  # Campo RPA
+
+            # Emisor (empresa actual) - formato RPA
+            'rut_emisor': self.full_rut,  # Con formato XX.XXX.XXX-X
+            'razon_social_emisor': self.company.name if self.company else f'Empresa {self.full_rut}',
+
+            # Receptor genérico - formato RPA
+            'rut_receptor': '96790240-3',  # RUT genérico SII con formato completo
+            'razon_social_receptor': f'Comprobantes de Pago Electrónicos - {nombre_tipo}',
+
+            # Datos adicionales específicos del resumen
+            'quantity_docs': cantidad_docs,
+            'xml_data': '',  # Vacío para documentos sintéticos
+
+            # Datos adicionales del resumen (raw_data esperado por mapper)
+            'raw_data': {
+                'original_resumen_item': resumen_item,
+                'synthetic_type_48': True,
+                'extraction_date': datetime.now().isoformat(),
+                'periodo': periodo
+            }
+        }
+
+        logger.info(f"      ✅ Documento sintético tipo 48 estructura completa creada")
+        logger.debug(f"      📋 Estructura: {doc_sintetico}")
+        return doc_sintetico
+
+    def _create_synthetic_document_type_39(
+        self,
+        resumen_item: Dict,
+        periodo: str,
+        task_id: Optional[str]
+    ) -> Dict:
+        """
+        Crea un documento sintético para tipo 39 (Boleta Electrónica).
+        En lugar de extraer documentos individuales, usa los datos del resumen.
+
+        Args:
+            resumen_item: Item del resumen que contiene los datos agregados
+            periodo: Período tributario (YYYYMM)
+            task_id: ID de la tarea (opcional)
+
+        Returns:
+            Dict con el documento sintético
+        """
+        from datetime import datetime
+
+        # Convertir período a fecha (primer día del mes)
+        año = int(periodo[:4])
+        mes = int(periodo[4:6])
+        fecha_periodo = datetime(año, mes, 1).date().isoformat()
+
+        # Extraer datos del resumen
+        total_amount = resumen_item.get('rsmnMntTotal', 0)
+        cantidad_docs = resumen_item.get('rsmnTotDoc', 0)
+        nombre_tipo = resumen_item.get('dcvNombreTipoDoc', 'Boleta Electrónica')
+
+        logger.info(f"   📄 Creando documento sintético tipo 39 para período {periodo}")
+        logger.info(f"      Total: ${total_amount:,.0f}, Cantidad: {cantidad_docs}")
+
+        # Crear documento sintético en formato RPA compatible
+        doc_sintetico = {
+            # Metadatos de extracción
+            'tipo_operacion': 'emitidos',
+            'company_rut': self.full_rut,
+            'extraction_task_id': task_id,
+            'periodo_tributario': periodo,
+            'is_synthetic': True,
+
+            # Campos en formato RPA (esperados por DTEValidator y DTEMapper)
+            'folio': int(periodo),  # Campo requerido por validator
+            'tipo_documento': '39',  # Campo esperado por RPA format
+            'fecha_emision': fecha_periodo,  # Campo RPA
+            'monto_total': total_amount,  # Campo RPA
+            'monto_neto': 0,  # Campo RPA (boletas suelen ser exentas/sin IVA desglosado)
+            'monto_iva': 0,  # Campo RPA
+
+            # Emisor (empresa actual) - formato RPA
+            'rut_emisor': self.full_rut,  # Con formato XX.XXX.XXX-X
+            'razon_social_emisor': self.company.name if self.company else f'Empresa {self.full_rut}',
+
+            # Receptor genérico - formato RPA
+            'rut_receptor': '66666666-6',  # RUT genérico para consumidor final
+            'razon_social_receptor': f'Boletas Electrónicas - {nombre_tipo}',
+
+            # Datos adicionales específicos del resumen
+            'quantity_docs': cantidad_docs,
+            'xml_data': '',  # Vacío para documentos sintéticos
+
+            # Datos adicionales del resumen (raw_data esperado por mapper)
+            'raw_data': {
+                'original_resumen_item': resumen_item,
+                'synthetic_type_39': True,
+                'extraction_date': datetime.now().isoformat(),
+                'periodo': periodo
+            }
+        }
+
+        return doc_sintetico
+
     def _extract_ventas(
         self,
         sii_service: SIIIntegratedService,
-        periodo: str, 
+        periodo: str,
         task_id: Optional[str]
     ) -> List[Dict]:
         """
@@ -384,6 +533,7 @@ class DocumentSyncService:
                 
                 # Identificar tipos de documentos con datos
                 tipos_con_datos = []
+                resumen_items = {}  # Para almacenar items del resumen por tipo
                 if isinstance(ventas_data, list):
                     for item in ventas_data:
                         if isinstance(item, dict):
@@ -392,29 +542,67 @@ class DocumentSyncService:
                             nombre = item.get('dcvNombreTipoDoc', f'Tipo {tipo_codigo}')
                             if tipo_codigo and cantidad > 0:
                                 tipos_con_datos.append(tipo_codigo)
+                                resumen_items[tipo_codigo] = item  # Almacenar item completo
                                 logger.info(f"   Tipo {tipo_codigo} ({nombre}): {cantidad} documentos")
                 
                 # Si no hay tipos identificados, intentar con los comunes
                 if not tipos_con_datos:
                     logger.info("   No se encontraron tipos en resumen, intentando con tipos comunes...")
                     tipos_con_datos = ['33', '34', '39', '41', '52', '56', '61']  # Facturas, Boletas, GD, NC, ND
+                    # Para tipos especiales sin resumen, no podemos crear documentos sintéticos
+                    resumen_items = {}
                 
                 # Extraer documentos para cada tipo
                 for cod_tipo in tipos_con_datos:
-                    logger.info(f"   📄 Extrayendo documentos tipo {cod_tipo}...")
-                    result = sii_service.get_documentos_venta(periodo, cod_tipo_doc=cod_tipo)
-                    
-                    if result.get('status') == 'success':
-                        docs = result.get('data', [])
-                        if docs:
-                            logger.info(f"      ✅ {len(docs)} documentos tipo {cod_tipo} extraídos")
-                            # Agregar metadatos
-                            for doc in docs:
-                                doc['tipo_operacion'] = 'emitidos'
-                                doc['company_rut'] = self.full_rut
-                                doc['extraction_task_id'] = task_id
-                                doc['periodo_tributario'] = periodo
-                            all_docs.extend(docs)
+                    if cod_tipo == '48':
+                        # Manejo especial para tipo 48 (Comprobante de pago electrónico)
+                        logger.info(f"   📄 Procesando tipo 48 (Comprobante de pago electrónico) - usando resumen")
+                        logger.info(f"      🔍 Verificando resumen_items para tipo 48...")
+                        logger.info(f"      📊 Claves disponibles en resumen: {list(resumen_items.keys())}")
+
+                        if cod_tipo in resumen_items:
+                            logger.info(f"      ✅ Encontrado item en resumen para tipo 48")
+                            doc_sintetico = self._create_synthetic_document_type_48(
+                                resumen_items[cod_tipo],
+                                periodo,
+                                task_id
+                            )
+                            all_docs.append(doc_sintetico)
+                            logger.info(f"      ✅ Documento sintético tipo 48 agregado a all_docs (total: {len(all_docs)})")
+                        else:
+                            logger.warning(f"      ⚠️ No se encontró item en resumen para tipo 48 - no se puede crear documento sintético")
+                            logger.warning(f"      📊 Tipos disponibles en resumen: {list(resumen_items.keys())}")
+                    elif cod_tipo == '39':
+                        # Manejo especial para tipo 39 (Boleta Electrónica)
+                        logger.info(f"   📄 Procesando tipo 39 (Boleta Electrónica) - usando resumen")
+                        if cod_tipo in resumen_items:
+                            doc_sintetico = self._create_synthetic_document_type_39(
+                                resumen_items[cod_tipo],
+                                periodo,
+                                task_id
+                            )
+                            all_docs.append(doc_sintetico)
+                            logger.info(f"      ✅ Documento sintético tipo 39 creado")
+                        else:
+                            logger.warning(f"      ⚠️ No se encontró item en resumen para tipo 39 - no se puede crear documento sintético")
+                    else:
+                        # Proceso normal para otros tipos
+                        logger.info(f"   📄 Extrayendo documentos tipo {cod_tipo}...")
+                        result = sii_service.get_documentos_venta(periodo, cod_tipo_doc=cod_tipo)
+
+                        if result.get('status') == 'success':
+                            docs = result.get('data', [])
+                            if docs:
+                                logger.info(f"      ✅ {len(docs)} documentos tipo {cod_tipo} extraídos")
+                                # Agregar metadatos
+                                for doc in docs:
+                                    doc['tipo_operacion'] = 'emitidos'
+                                    doc['company_rut'] = self.full_rut
+                                    doc['extraction_task_id'] = task_id
+                                    doc['periodo_tributario'] = periodo
+                                all_docs.extend(docs)
+                        else:
+                            logger.warning(f"      ⚠️ No se pudieron extraer documentos tipo {cod_tipo}")
             else:
                 # Si falla el resumen, intentar con tipo 33 por defecto
                 logger.warning(f"⚠️ No se pudo obtener resumen, extrayendo tipo 33 por defecto")

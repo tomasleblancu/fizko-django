@@ -11,6 +11,7 @@ from .models import Company
 from .serializers import CompanySerializer, CompanyCreateSerializer, CompanyWithSiiDataSerializer
 from apps.sii.api.servicev2 import SIIServiceV2
 from apps.sii.utils.exceptions import SIIServiceException, SIIAuthenticationError
+from apps.core.permissions import CanOnlyAccessOwnCompanies
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class CompanyViewSet(viewsets.ModelViewSet):
     """ViewSet para gestión de compañías"""
     queryset = Company.objects.all()
-    permission_classes = [permissions.AllowAny]  # Temporalmente permitir acceso sin token
+    permission_classes = [IsAuthenticated, CanOnlyAccessOwnCompanies]  # ✅ PERMISOS ESTRICTOS
     
     def get_serializer_class(self):
         if self.action == 'create':
@@ -26,13 +27,55 @@ class CompanyViewSet(viewsets.ModelViewSet):
         return CompanySerializer
     
     def get_queryset(self):
-        """Filtrar compañías - temporalmente sin filtros por usuario para debug"""
-        # Temporalmente devolver todas las empresas para debug
-        return Company.objects.filter(is_active=True).select_related('taxpayer')
+        """Filtrar compañías solo del usuario autenticado"""
+        # ✅ SOLO EMPRESAS DEL USUARIO ACTUAL
+        user = self.request.user
+        from apps.accounts.models import UserRole
+        
+        # Obtener solo las empresas donde el usuario tiene algún rol activo
+        user_company_ids = UserRole.objects.filter(
+            user=user,
+            active=True
+        ).values_list('company_id', flat=True)
+        
+        return Company.objects.filter(
+            id__in=user_company_ids,
+            is_active=True
+        ).select_related('taxpayer')
     
     def perform_create(self, serializer):
-        """Al crear una empresa, asociarla con el usuario actual"""
-        serializer.save()
+        """Al crear una empresa, asociarla con el usuario actual como owner"""
+        company = serializer.save()
+        
+        # Crear rol de owner para el usuario que crea la empresa
+        from apps.accounts.models import Role, UserRole
+        
+        # Obtener o crear el rol de owner
+        owner_role, _ = Role.objects.get_or_create(
+            name='owner',
+            defaults={
+                'description': 'Propietario de la empresa con todos los permisos',
+                'permissions': {
+                    'companies': ['create', 'read', 'update', 'delete'],
+                    'documents': ['create', 'read', 'update', 'delete', 'export'],
+                    'forms': ['create', 'read', 'update', 'delete'],
+                    'expenses': ['create', 'read', 'update', 'delete'],
+                    'analytics': ['read', 'export'],
+                    'settings': ['read', 'update'],
+                    'users': ['create', 'read', 'update', 'delete']
+                }
+            }
+        )
+        
+        # Asignar rol de owner al usuario actual
+        UserRole.objects.get_or_create(
+            user=self.request.user,
+            company=company,
+            role=owner_role,
+            defaults={'active': True}
+        )
+        
+        logger.info(f"✅ Usuario {self.request.user.email} creó empresa {company.name} y se asignó como owner")
     
     @action(detail=True, methods=['get'])
     def sii_status(self, request, pk=None):

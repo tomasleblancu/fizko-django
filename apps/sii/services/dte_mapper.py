@@ -119,10 +119,16 @@ class DTEMapper:
             dv_emisor = self.company_rut_parts['dv']
             nombre_emisor = self.company.business_name or self.company.display_name
             
-            # El receptor debe venir en los datos
+            # El receptor debe venir en los datos (pero la API SII no siempre lo provee para ventas)
             rut_receptor = str(dte_data.get('detRutDoc', '00000000'))
             dv_receptor = str(dte_data.get('detDvDoc', '0'))
-            nombre_receptor = dte_data.get('detRznSoc', 'Cliente')
+            nombre_receptor = dte_data.get('detRznSoc', '')
+            
+            # Si los datos del receptor están vacíos (común en API SII para ventas)
+            if not nombre_receptor or nombre_receptor in ['', 'None', None] or rut_receptor in ['0', '00000000']:
+                nombre_receptor = 'Cliente (datos no disponibles en SII)'
+                rut_receptor = '00000000'
+                dv_receptor = '0'
         
         # Obtener o crear tipo de documento
         document_type = self._get_or_create_document_type(tipo_documento_raw)
@@ -159,13 +165,17 @@ class DTEMapper:
     def _map_rpa_format(self, dte_data: Dict) -> Dict[str, Any]:
         """
         Mapea un DTE en formato RPA (procesado).
-        
+
         Args:
             dte_data: DTE en formato RPA
-            
+
         Returns:
             Dict con campos para Document
         """
+        # Log específico para documentos sintéticos tipo 48
+        if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+            logger.info(f"🔄 Mapeando documento sintético tipo 48 - Folio: {dte_data.get('folio')}")
+
         # Extraer información básica
         folio = dte_data.get('folio')
         tipo_documento_raw = dte_data.get('tipo_documento')
@@ -220,7 +230,7 @@ class DTEMapper:
         # Generar track_id único
         track_id = self._generate_track_id(folio)
         
-        return {
+        mapped_data = {
             'company': self.company,  # Agregar relación con Company
             'issuer_company_rut': str(rut_emisor)[:12],
             'issuer_company_dv': str(dv_emisor)[:1].upper(),
@@ -240,6 +250,16 @@ class DTEMapper:
             'xml_data': dte_data.get('xml_data', ''),
             'raw_data': dte_data
         }
+
+        # Log específico para documentos sintéticos tipo 48
+        if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+            logger.info(f"✅ Documento sintético tipo 48 mapeado correctamente")
+            logger.info(f"   Emisor: {mapped_data['issuer_company_rut']}-{mapped_data['issuer_company_dv']}")
+            logger.info(f"   Tipo documento: {document_type} (ID: {document_type.id})")
+            logger.info(f"   Folio: {mapped_data['folio']}")
+            logger.info(f"   Total: ${mapped_data['total_amount']}")
+
+        return mapped_data
     
     def _get_or_create_document_type(self, tipo_codigo: int) -> DocumentType:
         """

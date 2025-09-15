@@ -98,16 +98,22 @@ class DTEProcessor:
     ):
         """
         Procesa un DTE individual.
-        
+
         Args:
             dte_data: Datos del DTE
             results: Dict para acumular resultados
-            
+
         Raises:
             Exception: Si hay error en el procesamiento
         """
+        # Log específico para documentos sintéticos tipo 48
+        if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+            logger.info(f"🔄 Procesando documento sintético tipo 48 - Folio: {dte_data.get('folio')}")
+
         # Validar DTE
         if not self.validator.validate(dte_data):
+            if dte_data.get('tipo_documento') == '48':
+                logger.error(f"❌ Documento sintético tipo 48 falló validación: {self.validator.get_last_error()}")
             raise ValueError(f"DTE inválido: {self.validator.get_last_error()}")
         
         # Mapear datos del DTE
@@ -122,12 +128,18 @@ class DTEProcessor:
                 # Actualizar documento existente
                 self._update_document(existing, dte_fields)
                 results['updated'] += 1
-                logger.debug(f"📝 DTE actualizado: Folio {dte_fields.get('folio')}, Tipo {dte_fields.get('document_type')}")
+                if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+                    logger.info(f"📝 Documento sintético tipo 48 ACTUALIZADO: Folio {dte_fields.get('folio')}")
+                else:
+                    logger.debug(f"📝 DTE actualizado: Folio {dte_fields.get('folio')}, Tipo {dte_fields.get('document_type')}")
             else:
                 # Crear nuevo documento
                 self._create_document(dte_fields)
                 results['created'] += 1
-                logger.debug(f"🆕 DTE creado: Folio {dte_fields.get('folio')}, Tipo {dte_fields.get('document_type')}")
+                if dte_data.get('tipo_documento') == '48' and dte_data.get('is_synthetic'):
+                    logger.info(f"🆕 Documento sintético tipo 48 CREADO: Folio {dte_fields.get('folio')}")
+                else:
+                    logger.debug(f"🆕 DTE creado: Folio {dte_fields.get('folio')}, Tipo {dte_fields.get('document_type')}")
         
         results['processed'] += 1
     

@@ -53,6 +53,14 @@ class IsCompanyMember(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
+        # For Company objects, check if user has any role in this company
+        if obj.__class__.__name__ == 'Company':
+            return UserRole.objects.filter(
+                user=request.user,
+                company=obj,
+                active=True
+            ).exists()
+        
         # Check if object has a company field
         if hasattr(obj, 'company'):
             return UserRole.objects.filter(
@@ -64,6 +72,36 @@ class IsCompanyMember(permissions.BasePermission):
             return UserRole.objects.filter(
                 user=request.user,
                 company_id=obj.company_id,
+                active=True
+            ).exists()
+        
+        return False
+
+
+class CanOnlyAccessOwnCompanies(permissions.BasePermission):
+    """
+    Permiso estricto que solo permite acceso a empresas donde el usuario tiene roles activos.
+    Usado específicamente para el CompanyViewSet.
+    """
+
+    def has_permission(self, request, view):
+        """
+        Solo usuarios autenticados pueden acceder
+        """
+        return request.user and request.user.is_authenticated
+
+    def has_object_permission(self, request, view, obj):
+        """
+        Solo permite acceso si el usuario tiene un rol activo en la empresa
+        """
+        if not request.user.is_authenticated:
+            return False
+
+        # Para objetos Company, verificar que el usuario tenga algún rol activo
+        if obj.__class__.__name__ == 'Company':
+            return UserRole.objects.filter(
+                user=request.user,
+                company=obj,
                 active=True
             ).exists()
         

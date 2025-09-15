@@ -158,7 +158,7 @@ class DocumentViewSet(viewsets.ViewSet):
             company = self.get_company(request)
             
             # Parámetros de filtro
-            tipo_operacion = request.query_params.get('tipo_operacion', 'venta')
+            tipo_operacion = request.query_params.get('tipo_operacion')  # ✅ Sin default, muestra TODOS por defecto
             fecha_desde = request.query_params.get('fecha_desde')
             fecha_hasta = request.query_params.get('fecha_hasta')
             page_size = int(request.query_params.get('page_size', 50))
@@ -167,7 +167,7 @@ class DocumentViewSet(viewsets.ViewSet):
             # Construir query base - documentos de la empresa
             queryset = self.get_queryset().filter(company=company)
             
-            # Filtrar por tipo de operación (venta/compra)
+            # Filtrar por tipo de operación solo si se especifica
             if tipo_operacion == 'venta':
                 # Documentos emitidos por la empresa
                 queryset = queryset.filter(
@@ -180,6 +180,7 @@ class DocumentViewSet(viewsets.ViewSet):
                     recipient_rut=company.tax_id.split('-')[0],
                     recipient_dv=company.tax_id.split('-')[1].upper()
                 )
+            # Si no se especifica tipo_operacion, mostrar TODOS los documentos (ventas + compras)
             
             # Filtros de fecha
             if fecha_desde:
@@ -206,18 +207,54 @@ class DocumentViewSet(viewsets.ViewSet):
             # Serializar documentos para el frontend
             results = []
             for doc in documents:
+                # Determinar tipo de operación basado en los datos del documento
+                company_rut = company.tax_id.split('-')[0]
+                company_dv = company.tax_id.split('-')[1].upper()
+                
+                # Verificar si la empresa es el emisor o receptor
+                is_issuer = (doc.issuer_company_rut == company_rut and 
+                           doc.issuer_company_dv == company_dv)
+                is_receiver = (doc.recipient_rut == company_rut and 
+                             doc.recipient_dv == company_dv)
+                
+                if is_issuer:
+                    doc_operation = 'issued'
+                    doc_tipo_operacion = 'venta' 
+                elif is_receiver:
+                    doc_operation = 'received'
+                    doc_tipo_operacion = 'compra'
+                else:
+                    # Fallback basado en raw_data
+                    doc_operation = 'issued' if doc.raw_data.get('tipo_operacion') == 'emitidos' else 'received'
+                    doc_tipo_operacion = 'venta' if doc.raw_data.get('tipo_operacion') == 'emitidos' else 'compra'
+                
                 results.append({
                     'id': doc.id,
                     'document_type': str(doc.document_type.code),
                     'folio': str(doc.folio),
                     'issue_date': doc.issue_date.isoformat(),
+                    'created_at': doc.created_at.isoformat(),
+                    # Frontend expected fields
+                    'receiver_name': doc.recipient_name,
+                    'receiver_rut': doc.recipient_full_rut,
+                    'sender_name': doc.issuer_name,
+                    'sender_rut': f"{doc.issuer_company_rut}-{doc.issuer_company_dv}",
+                    # Compatibility fields for ElectronicDocument interface
+                    'razon_social_emisor': doc.issuer_name,
+                    'rut_emisor': f"{doc.issuer_company_rut}-{doc.issuer_company_dv}",
+                    'total_amount': float(doc.total_amount),
+                    'net_amount': float(doc.net_amount),
+                    'tax_amount': float(doc.tax_amount),
+                    'operation': doc_operation,
+                    'track_id': doc.sii_track_id or '',
+                    'status': doc.status,
+                    # Backward compatibility fields
                     'razon_social_receptor': doc.recipient_name,
                     'rut_receptor': doc.recipient_full_rut,
                     'monto_total': float(doc.total_amount),
                     'monto_iva': float(doc.tax_amount),
                     'monto_neto': float(doc.net_amount),
-                    'tipo_operacion': tipo_operacion,
-                    'status': doc.status
+                    'tipo_operacion': doc_tipo_operacion,
                 })
             
             # Calcular next/previous
