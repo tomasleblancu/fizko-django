@@ -114,12 +114,12 @@ class Company(TimeStampedModel):
             # Si no tiene display_name, usar la razón social del SII
             if not self.display_name:
                 self.display_name = self.taxpayer.razon_social
-            
+
             # Clasificación automática basada en tipo de contribuyente
-            if self.taxpayer.is_persona_juridica:
-                self.person_company = 'EMPRESA'
-            else:
-                self.person_company = 'PERSONA'
+            # TODO: Implementar is_persona_juridica en TaxPayer model
+            # Por ahora, usar person_company si ya está definido, sino default a EMPRESA
+            if not self.person_company:
+                self.person_company = 'EMPRESA'  # Default para empresas
     
     def get_sii_credentials(self):
         """Obtiene las credenciales del SII almacenadas para esta empresa"""

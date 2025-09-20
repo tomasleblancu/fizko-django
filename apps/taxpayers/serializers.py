@@ -1,21 +1,17 @@
 from rest_framework import serializers
-from .models import TaxPayer, TaxpayerActivity, TaxpayerAddress, TaxpayerPartner, TaxpayerRepresentative, TaxpayerStamp, TaxpayerSiiCredentials
+from .models import TaxPayer, TaxpayerSiiCredentials
 
 
 class TaxPayerSerializer(serializers.ModelSerializer):
     """Serializer para TaxPayer"""
     full_rut = serializers.ReadOnlyField()
-    is_persona_juridica = serializers.ReadOnlyField()
-    formatted_address = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = TaxPayer
         fields = '__all__'
         read_only_fields = (
-            'rut', 'dv', 'razon_social', 'nombre', 'tipo_contribuyente', 'estado',
-            'actividad_description', 'glosa_actividad', 'fecha_inicio_actividades',
-            'direccion', 'comuna', 'region', 'email', 'mobile_phone',
-            'data_source', 'last_sii_sync', 'sii_raw_data', 'is_verified'
+            'rut', 'dv', 'razon_social', 'data_source', 'last_sii_sync',
+            'sii_raw_data', 'is_verified'
         )
 
 
@@ -37,47 +33,6 @@ class TaxPayerCreateSerializer(serializers.ModelSerializer):
         return value
 
 
-class TaxpayerActivitySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TaxpayerActivity
-        fields = '__all__'
-
-
-class TaxpayerAddressSerializer(serializers.ModelSerializer):
-    full_address = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = TaxpayerAddress
-        fields = '__all__'
-
-
-class TaxpayerPartnerSerializer(serializers.ModelSerializer):
-    full_company_rut = serializers.ReadOnlyField()
-    full_partner_rut = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = TaxpayerPartner
-        fields = '__all__'
-
-
-class TaxpayerRepresentativeSerializer(serializers.ModelSerializer):
-    full_company_rut = serializers.ReadOnlyField()
-    full_representative_rut = serializers.ReadOnlyField()
-    is_valid = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = TaxpayerRepresentative
-        fields = '__all__'
-
-
-class TaxpayerStampSerializer(serializers.ModelSerializer):
-    full_company_rut = serializers.ReadOnlyField()
-    is_valid = serializers.ReadOnlyField()
-    days_until_expiry = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = TaxpayerStamp
-        fields = '__all__'
 
 
 class TaxpayerSiiCredentialsSerializer(serializers.ModelSerializer):

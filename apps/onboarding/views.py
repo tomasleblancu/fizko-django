@@ -580,8 +580,9 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             taxpayer.save()
             
             # Sincronizar modelos relacionados que necesitan la company
-            taxpayer._sync_address_from_sii(datos_sii, company=company)
-            taxpayer._sync_activity_from_sii(datos_sii, company=company)
+            # TODO: Implementar métodos de sincronización de dirección y actividad
+            # taxpayer._sync_address_from_sii(datos_sii, company=company)
+            # taxpayer._sync_activity_from_sii(datos_sii, company=company)
             
             # Sincronizar algunos datos de la company desde taxpayer
             company.sync_taxpayer_data()

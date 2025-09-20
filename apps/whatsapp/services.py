@@ -372,6 +372,7 @@ class WhatsAppWebhookService:
         """
         try:
             from .response_engine import response_engine
+            from django.conf import settings
 
             # Cargar reglas personalizadas de la empresa
             response_engine.load_custom_rules_from_templates(config.company)
@@ -383,7 +384,30 @@ class WhatsAppWebhookService:
                 print(f"📱 No hay respuesta automática para: {message.content[:50]}...")
                 return
 
-            # Enviar inmediatamente
+            # Modo de testing: solo simular envío si no hay API key válida
+            is_test_mode = not hasattr(settings, 'KAPSO_API_TOKEN') or not settings.KAPSO_API_TOKEN or settings.KAPSO_API_TOKEN == 'test_token'
+
+            if is_test_mode:
+                # Crear registro del mensaje de respuesta sin enviarlo realmente
+                auto_response_message = WhatsAppMessage.objects.create(
+                    message_id=str(uuid.uuid4()),
+                    conversation=message.conversation,
+                    company=config.company,
+                    message_type='text',
+                    direction='outbound',
+                    content=response_message,
+                    status='sent',  # Simular como enviado
+                    processing_status='processed',
+                    is_auto_response=True,
+                    triggered_by=message,
+                    whatsapp_message_id=f"test_response_{uuid.uuid4()}"
+                )
+
+                print(f"🧪 TEST MODE - Auto-response simulada para {message.conversation.phone_number}: {response_message[:50]}...")
+                print(f"📝 Respuesta completa: {response_message}")
+                return
+
+            # Enviar inmediatamente (modo real)
             result = WhatsAppWebhookService.send_message_sync(
                 config=config,
                 phone_number=message.conversation.phone_number,

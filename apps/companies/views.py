@@ -529,7 +529,7 @@ def test_company_creation(request):
             'display_name': taxpayer.razon_social,
             'email': contribuyente_data.get('email', 'test@empresa.cl').strip() if contribuyente_data.get('email') else 'test@empresa.cl',
             'mobile_phone': contribuyente_data.get('mobile_phone', '+56912345678').strip() if contribuyente_data.get('mobile_phone') else '+56912345678',
-            'person_company': 'EMPRESA' if taxpayer.is_persona_juridica else 'PERSONA',
+            'person_company': 'EMPRESA',  # TODO: Determinar basado en datos SII
             'electronic_biller': True,
             'is_active': True,
             'preferred_currency': 'CLP',

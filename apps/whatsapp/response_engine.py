@@ -161,6 +161,22 @@ class WhatsAppResponseEngine:
             priority=5
         ))
 
+        # Regla para consultas de chat/conversación
+        self.add_rule(ResponseRule(
+            name="chat_conversacion",
+            patterns=["chat", "conversar", "hablar", "contacto", "escribir", "mensaje"],
+            response="💬 ¡Perfecto! Estás en el lugar correcto para conversar con {company_name}.\n\n🤖 Puedes escribirme aquí mismo y te ayudaré con:\n• Consultas sobre servicios\n• Información de facturación\n• Soporte técnico\n• Asesoría tributaria\n\n✨ ¿En qué te puedo ayudar específicamente?",
+            priority=6
+        ))
+
+        # Regla para consultas generales de información
+        self.add_rule(ResponseRule(
+            name="informacion_general",
+            patterns=["info", "información", "detalles", "conocer más", "que hacen", "servicios"],
+            response="ℹ️ Te cuento sobre {company_name}:\n\n🏢 Somos especialistas en gestión empresarial chilena:\n• ✅ Automatización tributaria\n• ✅ Facturación electrónica\n• ✅ Cumplimiento SII\n• ✅ Contabilidad digital\n• ✅ Asesoría fiscal\n\n📞 ¿Te interesa conocer cómo podemos ayudar a tu empresa?",
+            priority=6
+        ))
+
         # Regla de horario no comercial
         self.add_rule(ResponseRule(
             name="fuera_horario",
@@ -174,7 +190,7 @@ class WhatsAppResponseEngine:
         self.add_rule(ResponseRule(
             name="mensaje_general",
             patterns=[".*"],  # Cualquier mensaje
-            response="🤖 Hola {contact_name}, gracias por contactar a {company_name}.\n\nHemos recibido tu mensaje y un miembro de nuestro equipo te responderá pronto.\n\n💡 Mientras tanto, ¿sabías que manejamos:\n• Facturas electrónicas\n• Documentos SII\n• Asesoría tributaria\n• Automatización contable\n\n¿Hay algo específico en lo que te pueda ayudar ahora?",
+            response="👋 ¡Hola {contact_name}! Gracias por escribir a {company_name}.\n\n✅ Tu mensaje ha sido recibido y nuestro equipo te responderá a la brevedad.\n\n🔧 Somos expertos en:\n• Gestión tributaria automatizada\n• Facturación electrónica\n• Cumplimiento SII\n• Contabilidad digital\n\n💬 ¿Necesitas ayuda inmediata con algo específico?",
             priority=1
         ))
 
@@ -262,10 +278,14 @@ class WhatsAppResponseEngine:
 
         for rule in self.rules:
             # Verificar patrones
-            pattern_match = any(
-                any(word in content for word in pattern.split())
-                for pattern in rule.patterns
-            )
+            if rule.patterns == [".*"]:
+                # Regla comodín (acepta cualquier mensaje)
+                pattern_match = True
+            else:
+                pattern_match = any(
+                    any(word in content for word in pattern.split())
+                    for pattern in rule.patterns
+                )
 
             if not pattern_match:
                 continue
