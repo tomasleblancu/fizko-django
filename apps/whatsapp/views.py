@@ -26,6 +26,7 @@ from .serializers import (
     SendTemplateSerializer, MarkConversationReadSerializer
 )
 from .services import WhatsAppWebhookService, KapsoAPIService
+from .response_engine import response_engine
 # Removed Celery tasks imports - now using synchronous processing
 from apps.core.permissions import IsCompanyMember
 
@@ -390,3 +391,169 @@ class MarkConversationReadView(APIView):
                 {'error': 'Conversation not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class TestResponseView(APIView):
+    """Vista para probar respuestas automáticas"""
+
+    permission_classes = [IsAuthenticated, IsCompanyMember]
+
+    def post(self, request):
+        """Prueba qué respuesta se generaría para un mensaje"""
+        message_content = request.data.get('message', '')
+        context = request.data.get('context', {})
+
+        if not message_content:
+            return Response(
+                {'error': 'Message content is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Obtener empresa del usuario
+        company = request.user.companies.filter(
+            user_roles__active=True
+        ).first()
+
+        if not company:
+            return Response(
+                {'error': 'No active company found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Probar respuesta
+        result = response_engine.test_response(message_content, company, context)
+
+        return Response(result)
+
+
+class ResponseRulesView(APIView):
+    """Vista para gestionar reglas de respuesta"""
+
+    permission_classes = [IsAuthenticated, IsCompanyMember]
+
+    def get(self, request):
+        """Obtiene las reglas de respuesta activas"""
+        rules_data = []
+
+        for rule in response_engine.rules:
+            rules_data.append({
+                'name': rule.name,
+                'patterns': rule.patterns,
+                'response': rule.response,
+                'priority': rule.priority,
+                'conditions': rule.conditions
+            })
+
+        return Response({
+            'rules': rules_data,
+            'total_rules': len(rules_data)
+        })
+
+    def post(self, request):
+        """Añade una nueva regla personalizada"""
+        from .response_engine import ResponseRule
+
+        name = request.data.get('name')
+        patterns = request.data.get('patterns', [])
+        response_text = request.data.get('response')
+        priority = request.data.get('priority', 5)
+        conditions = request.data.get('conditions', {})
+
+        if not all([name, patterns, response_text]):
+            return Response(
+                {'error': 'Name, patterns, and response are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Crear nueva regla
+        new_rule = ResponseRule(
+            name=name,
+            patterns=patterns,
+            response=response_text,
+            priority=priority,
+            conditions=conditions
+        )
+
+        # Añadir al motor
+        response_engine.add_rule(new_rule)
+
+        return Response({
+            'status': 'success',
+            'message': f'Rule "{name}" added successfully',
+            'rule': {
+                'name': new_rule.name,
+                'patterns': new_rule.patterns,
+                'response': new_rule.response,
+                'priority': new_rule.priority
+            }
+        })
+
+    def delete(self, request):
+        """Elimina una regla por nombre"""
+        rule_name = request.data.get('name')
+
+        if not rule_name:
+            return Response(
+                {'error': 'Rule name is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Eliminar regla
+        response_engine.remove_rule(rule_name)
+
+        return Response({
+            'status': 'success',
+            'message': f'Rule "{rule_name}" removed successfully'
+        })
+
+
+class ResponseAnalyticsView(APIView):
+    """Vista para analíticas de respuestas automáticas"""
+
+    permission_classes = [IsAuthenticated, IsCompanyMember]
+
+    def get(self, request):
+        """Obtiene estadísticas de respuestas automáticas"""
+        # Obtener empresa del usuario
+        company = request.user.companies.filter(
+            user_roles__active=True
+        ).first()
+
+        if not company:
+            return Response(
+                {'error': 'No active company found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Estadísticas de mensajes automáticos
+        from datetime import timedelta
+        from django.utils import timezone
+
+        last_30_days = timezone.now() - timedelta(days=30)
+
+        auto_messages = WhatsAppMessage.objects.filter(
+            company=company,
+            is_auto_response=True,
+            created_at__gte=last_30_days
+        )
+
+        inbound_messages = WhatsAppMessage.objects.filter(
+            company=company,
+            direction='inbound',
+            created_at__gte=last_30_days
+        )
+
+        analytics = {
+            'period': '30 days',
+            'total_inbound_messages': inbound_messages.count(),
+            'total_auto_responses': auto_messages.count(),
+            'response_rate': (
+                auto_messages.count() / inbound_messages.count() * 100
+                if inbound_messages.count() > 0 else 0
+            ),
+            'active_rules': len(response_engine.rules),
+            'conversations_with_auto_responses': auto_messages.values('conversation').distinct().count(),
+            'avg_response_time': '< 1 second (synchronous)',
+        }
+
+        return Response(analytics)

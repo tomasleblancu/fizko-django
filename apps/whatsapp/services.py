@@ -368,17 +368,21 @@ class WhatsAppWebhookService:
     @staticmethod
     def _send_auto_response_sync(message: WhatsAppMessage, config: WhatsAppConfig):
         """
-        Envía respuesta automática para mensaje entrante (inmediatamente)
+        Envía respuesta automática para mensaje entrante usando el motor de respuestas
         """
         try:
-            # Solo responder a mensajes de texto para evitar spam
-            if message.message_type != 'text':
+            from .response_engine import response_engine
+
+            # Cargar reglas personalizadas de la empresa
+            response_engine.load_custom_rules_from_templates(config.company)
+
+            # Obtener respuesta del motor
+            response_message = response_engine.get_response(message)
+
+            if not response_message:
+                print(f"📱 No hay respuesta automática para: {message.content[:50]}...")
                 return
-            
-            
-            # Generar respuesta automática basada en el contenido
-            response_message = WhatsAppWebhookService._generate_auto_response_message(message, config)
-            
+
             # Enviar inmediatamente
             result = WhatsAppWebhookService.send_message_sync(
                 config=config,
@@ -387,45 +391,15 @@ class WhatsAppWebhookService:
                 is_auto_response=True,
                 triggered_by=message
             )
-            
+
             if result.get('status') == 'success':
                 print(f"✅ Auto-response enviada a {message.conversation.phone_number}: {response_message[:50]}...")
             else:
                 print(f"❌ Error enviando auto-response: {result.get('error', 'Unknown error')}")
-            
+
         except Exception as e:
             print(f"❌ Error enviando auto-response: {e}")
     
-    @staticmethod
-    def _generate_auto_response_message(message: WhatsAppMessage, config: WhatsAppConfig) -> str:
-        """
-        Genera mensaje de respuesta automática inteligente
-        """
-        content = message.content.lower().strip()
-        company_name = config.company.name
-        
-        # Respuestas contextuales basadas en el contenido
-        if any(word in content for word in ['hola', 'buenas', 'buenos dias', 'buenas tardes']):
-            return f"¡Hola! 👋 Soy el asistente digital de {company_name}. ¿En qué puedo ayudarte hoy?"
-        
-        elif any(word in content for word in ['factura', 'boleta', 'documento', 'dte']):
-            return f"📄 Perfecto, te puedo ayudar con temas de facturación y documentos tributarios. {company_name} maneja todos los documentos electrónicos. ¿Qué necesitas específicamente?"
-        
-        elif any(word in content for word in ['impuesto', 'sii', 'tributario', 'f29', 'f3323']):
-            return f"🏛️ Excelente, especialistas en temas tributarios. {company_name} te puede asesorar con el SII, F29, F3323 y todos los impuestos. ¿Cuál es tu consulta?"
-        
-        elif any(word in content for word in ['precio', 'costo', 'valor', 'tarifa']):
-            return f"💰 Te contactamos pronto con información de nuestros servicios y tarifas. {company_name} tiene planes flexibles para empresas de todos los tamaños."
-        
-        elif any(word in content for word in ['ayuda', 'problema', 'error', 'no funciona']):
-            return f"🆘 ¡No te preocupes! El equipo de soporte de {company_name} está aquí para ayudarte. Descríbeme el problema y te orientamos."
-        
-        elif any(word in content for word in ['gracias', 'perfecto', 'excelente', 'ok']):
-            return f"😊 ¡De nada! Es un placer ayudarte. {company_name} siempre está disponible para lo que necesites."
-        
-        else:
-            # Respuesta genérica pero útil
-            return f"🤖 Gracias por contactar a {company_name}. Hemos recibido tu mensaje y un miembro de nuestro equipo te responderá pronto. \n\n💡 Mientras tanto, ¿sabías que manejamos:\n• Facturas electrónicas\n• Documentos SII\n• Asesoría tributaria\n• Automatización contable"
     
     @staticmethod
     def send_message_sync(config: WhatsAppConfig, phone_number: str, message: str, 

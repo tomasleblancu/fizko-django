@@ -13,13 +13,18 @@ router.register('webhook-events', views.WebhookEventViewSet, basename='webhook-e
 urlpatterns = [
     # API endpoints
     path('', include(router.urls)),
-    
+
     # Webhook endpoint
     path('webhook/', views.WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
-    
+
     # Utility endpoints
     path('send-message/', views.SendMessageView.as_view(), name='send-message'),
     path('send-template/', views.SendTemplateView.as_view(), name='send-template'),
-    path('conversation/<uuid:conversation_id>/mark-read/', 
+    path('conversation/<uuid:conversation_id>/mark-read/',
          views.MarkConversationReadView.as_view(), name='mark-conversation-read'),
+
+    # Response engine endpoints
+    path('test-response/', views.TestResponseView.as_view(), name='test-response'),
+    path('response-rules/', views.ResponseRulesView.as_view(), name='response-rules'),
+    path('response-analytics/', views.ResponseAnalyticsView.as_view(), name='response-analytics'),
 ]

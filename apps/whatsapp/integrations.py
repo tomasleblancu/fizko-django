@@ -5,7 +5,7 @@ from django.conf import settings
 
 from apps.notifications.models import Notification, NotificationPreference
 from .models import WhatsAppMessage, WhatsAppConfig, MessageTemplate
-from .tasks import send_message_async, send_tax_reminder_bulk, send_document_alert
+from .services import WhatsAppWebhookService
 
 
 class WhatsAppNotificationService:
@@ -98,19 +98,18 @@ class WhatsAppNotificationService:
                 rendered = template.render_message(message_data)
                 message_text = rendered['body']
                 
-                # Enviar mensaje
-                task = send_message_async.delay(
-                    config_id=company.whatsapp_config.id,
+                # Enviar mensaje sincrónicamente
+                result = WhatsAppWebhookService.send_message_sync(
+                    config=company.whatsapp_config,
                     phone_number=recipient_phone,
-                    message=message_text,
-                    is_template=True,
-                    template_id=template.id
+                    message=message_text
                 )
-                
+
                 return {
-                    'status': 'success',
-                    'task_id': str(task.id),
-                    'template_used': template.name
+                    'status': result.get('status', 'error'),
+                    'message_id': result.get('message_id'),
+                    'template_used': template.name,
+                    'error': result.get('error')
                 }
                 
             except MessageTemplate.DoesNotExist:
@@ -119,16 +118,17 @@ class WhatsAppNotificationService:
                     notification_type, message_data
                 )
                 
-                task = send_message_async.delay(
-                    config_id=company.whatsapp_config.id,
+                result = WhatsAppWebhookService.send_message_sync(
+                    config=company.whatsapp_config,
                     phone_number=recipient_phone,
                     message=generic_message
                 )
-                
+
                 return {
-                    'status': 'success',
-                    'task_id': str(task.id),
-                    'message': 'Sent with generic template'
+                    'status': result.get('status', 'error'),
+                    'message_id': result.get('message_id'),
+                    'message': 'Sent with generic template',
+                    'error': result.get('error')
                 }
             
         except Exception as e:
@@ -171,22 +171,24 @@ class WhatsAppNotificationService:
                         user_phones.append(user_role.user.profile.phone)
                 
                 if user_phones:
-                    # Enviar recordatorios masivos
-                    task_result = send_tax_reminder_bulk.delay(
-                        company_id=company.id,
-                        template_name='tax_reminder',
-                        phone_numbers=user_phones,
-                        variables={
-                            'company_name': company.name,
-                            'deadline_date': str(upcoming_deadline),
-                            'form_type': 'F29'
-                        }
-                    )
-                    
+                    # Enviar recordatorios masivos sincrónicamente
+                    sent_count = 0
+                    for phone in user_phones:
+                        try:
+                            result = WhatsAppWebhookService.send_message_sync(
+                                config=company.whatsapp_config,
+                                phone_number=phone,
+                                message=f"Recordatorio tributario: F29 vence el {upcoming_deadline}. - {company.name}"
+                            )
+                            if result.get('status') == 'success':
+                                sent_count += 1
+                        except Exception as e:
+                            print(f"Error enviando recordatorio a {phone}: {e}")
+
                     results.append({
                         'company': company.name,
-                        'phones_notified': len(user_phones),
-                        'task_id': str(task_result.id)
+                        'phones_notified': sent_count,
+                        'total_phones': len(user_phones)
                     })
             
             return {
@@ -222,22 +224,29 @@ class WhatsAppNotificationService:
                 if hasattr(user_role.user, 'profile') and user_role.user.profile.phone:
                     user_phones.append(user_role.user.profile.phone)
             
-            # Enviar alertas individuales
-            tasks_sent = []
+            # Enviar alertas individuales sincrónicamente
+            alerts_sent = 0
             for phone in user_phones:
-                task = send_document_alert.delay(
-                    company_id=company_id,
-                    phone_number=phone,
-                    document_type=document_type,
-                    document_number=document_number,
-                    amount=amount
-                )
-                tasks_sent.append(str(task.id))
-            
+                try:
+                    message = f"Nuevo documento: {document_type} #{document_number}"
+                    if amount:
+                        message += f" por ${amount}"
+                    message += f" - {company.name}"
+
+                    result = WhatsAppWebhookService.send_message_sync(
+                        config=company.whatsapp_config,
+                        phone_number=phone,
+                        message=message
+                    )
+                    if result.get('status') == 'success':
+                        alerts_sent += 1
+                except Exception as e:
+                    print(f"Error enviando alerta a {phone}: {e}")
+
             return {
                 'status': 'success',
-                'alerts_sent': len(tasks_sent),
-                'task_ids': tasks_sent
+                'alerts_sent': alerts_sent,
+                'total_phones': len(user_phones)
             }
             
         except Exception as e:
