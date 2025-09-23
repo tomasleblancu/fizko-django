@@ -7,10 +7,15 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django.contrib.auth import get_user_model
 
-from .models import Task, TaskCategory, TaskComment, TaskAttachment, TaskLog
+from .models import (
+    Task, TaskCategory, TaskComment, TaskAttachment, TaskLog,
+    Process, ProcessTemplate, ProcessTask, ProcessExecution
+)
 from .serializers import (
     TaskSerializer, TaskCategorySerializer, TaskCommentSerializer,
-    TaskAttachmentSerializer, TaskLogSerializer, CreateTaskSerializer
+    TaskAttachmentSerializer, TaskLogSerializer, CreateTaskSerializer,
+    ProcessSerializer, ProcessTemplateSerializer, ProcessTaskSerializer,
+    ProcessExecutionSerializer, CreateProcessSerializer, ProcessSummarySerializer
 )
 from apps.core.permissions import IsCompanyMember
 
@@ -240,4 +245,251 @@ class TaskLogViewSet(viewsets.ReadOnlyModelViewSet):
         user_email = self.request.user.email
         return TaskLog.objects.filter(
             Q(task__assigned_to=user_email) | Q(task__created_by=user_email)
+        )
+
+
+# ViewSets para Procesos
+
+class ProcessTemplateViewSet(viewsets.ModelViewSet):
+    """ViewSet para plantillas de procesos"""
+
+    queryset = ProcessTemplate.objects.filter(is_active=True)
+    serializer_class = ProcessTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['process_type', 'is_active']
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'created_at']
+    ordering = ['name']
+
+    def perform_create(self, serializer):
+        """Establecer usuario creador al crear plantilla"""
+        serializer.save(created_by=self.request.user.email)
+
+
+class ProcessViewSet(viewsets.ModelViewSet):
+    """ViewSet para procesos del sistema"""
+
+    serializer_class = ProcessSerializer
+    permission_classes = [permissions.AllowAny]  # Temporal para testing
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'process_type', 'company_rut', 'assigned_to', 'is_template']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'due_date', 'start_date']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        """Filtrar procesos por usuario"""
+        if hasattr(self.request.user, 'email') and self.request.user.email:
+            user_email = self.request.user.email
+            return Process.objects.filter(
+                Q(assigned_to=user_email) | Q(created_by=user_email)
+            )
+        else:
+            # Para usuarios anónimos, devolver todos los procesos (temporal para testing)
+            return Process.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateProcessSerializer
+        elif self.action == 'list':
+            return ProcessSummarySerializer
+        return ProcessSerializer
+
+    def perform_create(self, serializer):
+        """Establecer usuario creador al crear proceso"""
+        created_by = getattr(self.request.user, 'email', 'anonymous') if hasattr(self.request.user, 'email') else 'anonymous'
+        serializer.save(created_by=created_by)
+
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """Iniciar un proceso"""
+        process = self.get_object()
+        if process.status != 'draft':
+            return Response(
+                {'error': 'Solo se pueden iniciar procesos en borrador'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        process.start_process()
+
+        # Crear ejecución
+        execution = ProcessExecution.objects.create(
+            process=process,
+            total_steps=process.process_tasks.count()
+        )
+
+        return Response({
+            'status': 'process_started',
+            'started_at': process.start_date,
+            'execution_id': execution.id
+        })
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Completar un proceso"""
+        process = self.get_object()
+        if process.status not in ['active', 'paused']:
+            return Response(
+                {'error': 'Solo se pueden completar procesos activos o pausados'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        process.complete_process()
+
+        # Actualizar ejecución activa
+        active_execution = process.executions.filter(status='running').first()
+        if active_execution:
+            active_execution.status = 'completed'
+            active_execution.completed_at = timezone.now()
+            active_execution.save()
+
+        return Response({
+            'status': 'process_completed',
+            'completed_at': process.completed_at
+        })
+
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        """Pausar un proceso"""
+        process = self.get_object()
+        if process.status != 'active':
+            return Response(
+                {'error': 'Solo se pueden pausar procesos activos'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        process.status = 'paused'
+        process.save()
+
+        return Response({'status': 'process_paused'})
+
+    @action(detail=True, methods=['post'])
+    def resume(self, request, pk=None):
+        """Reanudar un proceso pausado"""
+        process = self.get_object()
+        if process.status != 'paused':
+            return Response(
+                {'error': 'Solo se pueden reanudar procesos pausados'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        process.status = 'active'
+        process.save()
+
+        return Response({'status': 'process_resumed'})
+
+    @action(detail=True, methods=['post'])
+    def add_task(self, request, pk=None):
+        """Agregar una tarea al proceso"""
+        process = self.get_object()
+        task_id = request.data.get('task_id')
+        execution_order = request.data.get('execution_order', 0)
+
+        if not task_id:
+            return Response(
+                {'error': 'Se requiere task_id'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            task = Task.objects.get(id=task_id)
+            process_task, created = ProcessTask.objects.get_or_create(
+                process=process,
+                task=task,
+                defaults={
+                    'execution_order': execution_order,
+                    'is_optional': request.data.get('is_optional', False),
+                    'can_run_parallel': request.data.get('can_run_parallel', False),
+                }
+            )
+
+            if created:
+                return Response({
+                    'message': 'Tarea agregada al proceso',
+                    'process_task_id': process_task.id
+                })
+            else:
+                return Response(
+                    {'error': 'La tarea ya está en el proceso'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        except Task.DoesNotExist:
+            return Response(
+                {'error': 'Tarea no encontrada'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['get'])
+    def dashboard(self, request):
+        """Dashboard de procesos con estadísticas"""
+        user_email = request.user.email if hasattr(request.user, 'email') else 'anonymous'
+        all_processes = Process.objects.filter(
+            Q(assigned_to=user_email) | Q(created_by=user_email)
+        )
+
+        # Estadísticas por estado
+        stats_by_status = dict(
+            all_processes.values('status').annotate(count=Count('id')).values_list('status', 'count')
+        )
+
+        # Estadísticas por tipo
+        stats_by_type = dict(
+            all_processes.values('process_type').annotate(count=Count('id')).values_list('process_type', 'count')
+        )
+
+        # Procesos vencidos
+        overdue_processes = [p for p in all_processes if p.is_overdue]
+
+        # Próximos procesos (próximos 7 días)
+        from datetime import timedelta
+        next_week = timezone.now() + timedelta(days=7)
+        upcoming_processes = all_processes.filter(
+            due_date__isnull=False,
+            due_date__lte=next_week,
+            status__in=['draft', 'active', 'paused']
+        ).order_by('due_date')[:5]
+
+        return Response({
+            'total_processes': all_processes.count(),
+            'stats_by_status': stats_by_status,
+            'stats_by_type': stats_by_type,
+            'overdue_count': len(overdue_processes),
+            'overdue_processes': ProcessSummarySerializer(overdue_processes[:5], many=True).data,
+            'upcoming_processes': ProcessSummarySerializer(upcoming_processes, many=True).data,
+        })
+
+
+class ProcessTaskViewSet(viewsets.ModelViewSet):
+    """ViewSet para tareas de procesos"""
+
+    serializer_class = ProcessTaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['process', 'is_optional', 'can_run_parallel']
+    ordering = ['execution_order']
+
+    def get_queryset(self):
+        """Filtrar tareas de procesos del usuario"""
+        user_email = self.request.user.email
+        return ProcessTask.objects.filter(
+            Q(process__assigned_to=user_email) | Q(process__created_by=user_email)
+        )
+
+
+class ProcessExecutionViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet para ejecuciones de procesos (solo lectura)"""
+
+    serializer_class = ProcessExecutionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['process', 'status']
+    ordering = ['-started_at']
+
+    def get_queryset(self):
+        """Filtrar ejecuciones de procesos del usuario"""
+        user_email = self.request.user.email
+        return ProcessExecution.objects.filter(
+            Q(process__assigned_to=user_email) | Q(process__created_by=user_email)
         )

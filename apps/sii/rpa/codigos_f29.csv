@@ -1,0 +1,103 @@
+name,type,task,subject,code,xpath
+Exportaciones,Valor,Automático,Debito Fiscal,20,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[17]/td[4]/input"
+Ventas y/o Servicios prestados Exentos o No Gravados del giro,Valor,Automático,Debito Fiscal,142,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[17]/td[6]/input"
+Ventas con retención sobre el margen de comercialización (contribuyentes retenidos),Valor,Automático,Debito Fiscal,732,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[21]/td[4]/input"
+Ventas y/o Serivicios prestados Exentos o No Gravados que no son del giro,Valor,Automático,Debito Fiscal,715,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[21]/td[6]/input"
+Facturas de Compra recibidas con retención total (contribuyentes retenidos) y Factura de Inicio emitida,Valor,Automático,Debito Fiscal,587,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[27]/td[4]/input"
+Facturas de compra recibidas con retención parcial (Total neto),Valor,Automático,Debito Fiscal,720,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[27]/td[6]/input"
+Facturas emitidas por ventas y servicios del giro,Valor,Automático,Debito Fiscal,502,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[33]/td[4]/input"
+Facturas emitidas por la venta de bienes inmuebles afectas a IVA,Valor,Automático,Debito Fiscal,764,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[38]/td[4]/input"
+Facturas y notas de débitos por ventas y servicios que no son del giro (activo fijo y otros),Valor,Automático,Debito Fiscal,717,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[38]/td[6]/input"
+Boletas,Valor,Automático,Debito Fiscal,111,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[43]/td[4]/input"
+Comprobantes o recibos de pago generados en transacciones pagadas a través de medios electrónicos,Valor,Automático,Debito Fiscal,759,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[43]/td[6]/input"
+Notas de débito emitidas del giro y notas de débito recibidas de terceros por retención parcial de cambio de sujeto,Valor,Automático,Debito Fiscal,513,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[47]/td[4]/input"
+Notas de crédito emitidas por facturas asociadas al giro y notas de crédito recibidas de terceros por retención parcial de cambio de sujeto,Valor,Automático,Debito Fiscal,510,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[47]/td[6]/input"
+Notas de crédito emitidas por Vales de máquinas autorizadas por el servicio,Valor,Automático,Debito Fiscal,709,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[51]/td[4]/input"
+Notas de crédito emitidas por ventas y servicios que no son del giro (activo fijo y otros),Valor,Automático,Debito Fiscal,734,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[51]/td[6]/input"
+Facturas de compra recibidas con retención parcial (contribuyentes retenidos),Valor,Automático,Debito Fiscal,517,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[52]/td[4]/input"
+Liquidación y Liquidación Factura,Valor,Manual,Debito Fiscal,501,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[52]/td[6]/input"
+"Adicionales al débito fiscal del mes, originadas en devoluciones excesivas registradas en otros periodos por Art. 27 bis",Valor,Manual,Debito Fiscal,154,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[54]/td[4]/input"
+"Restitución adicional por proporción de operaciones exentas y/o no gravadas por concepto Art. 27 bis, inc. 2° (Ley 19.738)",Valor,Manual,Debito Fiscal,518,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[54]/td[6]/input"
+"Reintegro del impuesto de timbres y estampillas, Art 3° Ley 20.259 e IVA determinado en el Arrendamiento Esporádico de BBRR amoblados",Valor,Manual,Debito Fiscal,713,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[56]/td[4]/input"
+Adiciones al débito por IEPD. Ley 20.765,Valor,Manual,Debito Fiscal,741,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[68]/td[9]/input"
+Restitución adicional por proporción de operaciones exentas y/o no gravadas por concepto Reembolso Remanente CF IVA (Ley 21.256),Valor,Manual,Debito Fiscal,791,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[73]/td[4]/input"
+Total Debitos,Valor,Automático,Debito Fiscal,538,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[76]/td[4]/div"
+IVA por documentos electronicos recibidos (con derecho a credito),Valor,Automático,Debito Fiscal,511,
+IVA por documentos electronicos recibidos (sin derecho a credito),Valor,Automático,Debito Fiscal,514,
+Internas afectas,Valor,Automático,Credito Fiscal,521,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[76]/td[12]/div"
+Importaciones,Valor,Automático,Credito Fiscal,560,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[96]/td[4]/input"
+"Internas exentas, o no gravadas",Valor,Automático,Credito Fiscal,562,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[106]/td[8]/input"
+Facturas recibidas del giro y Facturas de compra emitidas,Valor,Automático,Credito Fiscal,520,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[106]/td[10]/input"
+Facturas recibidas de supermercados y comercios similares,Valor,Automático,Credito Fiscal,762,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[106]/td[14]/div"
+Facturas por adquisición o construcción de bienes inmuebles,Valor,Automático,Credito Fiscal,766,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[119]/td[4]/input"
+Facturas activo fijo,Valor,Automático,Credito Fiscal,525,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[194]/td[4]/div"
+Notas de crédito recibidas y emitidas por retención,Valor,Automático,Credito Fiscal,528,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[204]/td[4]/div"
+Notas de débito recibidas y emitidas por retención,Valor,Automático,Credito Fiscal,532,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[209]/td[4]/div"
+DIN importaciones del giro,Valor,Manual,Credito Fiscal,535,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[54]/td[6]/input"
+DIN importaciones activo fijo,Valor,Manual,Credito Fiscal,553,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[55]/td[6]/input"
+Remanente crédito fiscal mes anterior,Valor,Automático,Credito Fiscal,504,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[56]/td[4]/input"
+Devolución Art. 36 (exportadores),Valor,Manual,Credito Fiscal,593,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[57]/td[4]/input"
+Devolución Art. 27 bis (activo fijo),Valor,Manual,Credito Fiscal,594,"//*[@id=""main""]/table/tbody/tr/td/table/tbody/tr[7]/td/table/tbody/tr[8]/td/table/tbody/tr/td/table/tbody/tr[58]/td[4]/input"
+Certificado Imputación Art. 27 bis,Valor,Manual,Credito Fiscal,592,
+Devolución Art. 3 (Cambio de Sujeto),Valor,Manual,Credito Fiscal,539,
+Devolución Ley 20.258 (diesel),Valor,Manual,Credito Fiscal,718,
+Reembolso Remanente CF IVA,Valor,Manual,Credito Fiscal,790,
+Reintegro devolución indebida exportadores,Valor,Manual,Credito Fiscal,164,
+"Recuperación de Impuesto Específico al Petróleo Diésel (Art. 7º Ley 18.502, Arts.1º y 3º D.S. Nº 311/86",Valor,Manual,Credito Fiscal,127,
+Recuperación Impuesto Específico Petróleo Diésel soportado por Transportistas de Carga (Art. 2º Ley Nº 19.764),Valor,Manual,Credito Fiscal,544,
+Crédito del Art.11 Ley 18.211 (correspondiente a Zona Franca de Extensión),Valor,Manual,Credito Fiscal,523,
+"Crédito por Impuesto de Timbres y Estampillas, Art. 3º Ley Nº 20.259",Valor,Manual,Credito Fiscal,712,
+"Crédito por IVA restituido a aportantes sin domicilio ni residencia en Chile (Art. 83, del artículo primero Ley 20.712)",Valor,Manual,Credito Fiscal,757,
+"Retención Impuesto Primera Categoría por rentas de capitales mobiliarios del Art. 20 Nº 2, según Art. 73 LIR",Valor,Automático,Retenciones,50,
+"Retención Impuesto Único a los Trabajadores, según Art. 74 Nº 1 LIR",Valor,Automático,Retenciones,48,
+"Retención de Impuesto con tasa del 10% sobre las rentas del Art. 42 Nº 2, según Art. 74 Nº 2 LIR",Valor,Automático,Retenciones,151,
+"Retención de Impuesto con tasa del 10% sobre las rentas del Art. 48, según Art. 74 Nº 3 LIR",Valor,Automático,Retenciones,153,
+"Retención sobre rentas del Art. 42 Nº1 LIR con tasa del 3%, por reintegro del préstamo tasa 0%, según art. 9º letra a) Ley Nº 21.252",Valor,Manual,Retenciones,49,
+"Retención sobre rentas del Art. 42 Nº2 LIR con tasa del 3%, por reintegro del préstamo tasa 0%, según art. 7º Ley Nº 21.242 y art. 9º letra b) Ley Nº 21.252",Valor,Manual,Retenciones,155,
+"Retención a Suplementos, según Art. 74 Nº 5 (tasa 0,5%) LIR",Valor,Manual,Retenciones,54,
+"Retención por compra de productos mineros, según Art. 74 Nº 6 LIR",Valor,Manual,Retenciones,56,
+Retención sobre rescates y otras cantidades pagadas en cumplimiento de seguros dotales y seguros de vida con ahorro del Nº 3 del artículo 17 de la LIR (tasa 15%),Valor,Manual,Retenciones,588,
+Retención sobre retiros de Ahorro Previsional Voluntario del Art. 42 bis LIR (tasa 15%),Valor,Manual,Retenciones,589,
+Corresponde al cálculo general de PPM por utilidades del régimen semi integrado u otros regímenes de renta efectiva. La tasa se puede manipular.,Valor,Automático,PPM,62,
+Reintegros por préstamos COVID con tasa 0%. Se deben declarar manualmente.,Valor,Manual,PPM,123,
+PPM aplicable a actividades mineras acogidas al régimen del Art. 84 letra a).,Valor,Automático,PPM,703,
+PPM específico para explotadores mineros según norma especial del Art. 84 h).,Valor,Automático,PPM,156,
+"El monto no es calculado automáticamente por el SII y debe ser determinado e ingresado manualmente por el contribuyente, según el volumen de producción y valor del mineral extraído.",Valor,Manual,PPM,810,
+PPM fijo para transportistas bajo régimen de renta presunta.,Valor,Automático,PPM,66,
+Crédito por gastos en capacitación de trabajadores. Se debe informar y aplicar manualmente.,Valor,Manual,PPM,723,
+PPM sobre rentas del trabajo independiente o segunda categoría.,Valor,Automático,PPM,152,
+Reintegros COVID para contribuyentes con rentas de segunda categoría. Declaración manual.,Valor,Manual,PPM,157,
+PPM aplicable a artesanos bajo regímenes especiales según Art. 84 c).,Valor,Automático,PPM,70,
+Total PPM + Retenciones,Valor,Automático,PPM,595,
+Exportaciones,Cantidad,Automático,Debito Fiscal,585,
+Ventas y/o Servicios prestados Exentos o No Gravados del giro,Cantidad,Automático,Debito Fiscal,586,
+Ventas con retención sobre el margen de comercialización (contribuyentes retenidos),Cantidad,Automático,Debito Fiscal,731,
+Ventas y/o Serivicios prestados Exentos o No Gravados que no son del giro,Cantidad,Automático,Debito Fiscal,714,
+Facturas de Compra recibidas con retención total (contribuyentes retenidos) y Factura de Inicio emitida,Cantidad,Automático,Debito Fiscal,515,
+Facturas emitidas por ventas y servicios del giro,Cantidad,Automático,Debito Fiscal,503,
+Facturas emitidas por la venta de bienes inmuebles afectas a IVA,Cantidad,Automático,Debito Fiscal,763,
+Facturas y notas de débitos por ventas y servicios que no son del giro (activo fijo y otros),Cantidad,Automático,Debito Fiscal,716,
+Boletas,Cantidad,Automático,Debito Fiscal,110,
+Comprobantes o recibos de pago generados en transacciones pagadas a través de medios electrónicos,Cantidad,Automático,Debito Fiscal,758,
+Notas de débito emitidas del giro y notas de débito recibidas de terceros por retención parcial de cambio de sujeto,Cantidad,Automático,Debito Fiscal,512,
+Notas de crédito emitidas por facturas asociadas al giro y notas de crédito recibidas de terceros por retención parcial de cambio de sujeto,Cantidad,Automático,Debito Fiscal,509,
+Notas de crédito emitidas por Vales de máquinas autorizadas por el servicio,Cantidad,Automático,Debito Fiscal,708,
+Notas de crédito emitidas por ventas y servicios que no son del giro (activo fijo y otros),Cantidad,Automático,Debito Fiscal,733,
+Facturas de compra recibidas con retención parcial (contribuyentes retenidos),Cantidad,Automático,Debito Fiscal,516,
+Liquidación y Liquidación Factura,Cantidad,Manual,Debito Fiscal,500,
+Adiciones al débito por IEPD. Ley 20.765,Cantidad,Manual,Debito Fiscal,740,
+Internas afectas,Cantidad,Automático,Credito Fiscal,564,
+Importaciones,Cantidad,Automático,Credito Fiscal,566,
+"Internas exentas, o no gravadas",Cantidad,Automático,Credito Fiscal,584,
+Facturas recibidas del giro y Facturas de compra emitidas,Cantidad,Automático,Credito Fiscal,519,
+Facturas recibidas de supermercados y comercios similares,Cantidad,Automático,Credito Fiscal,761,
+Facturas por adquisición o construcción de bienes inmuebles,Cantidad,Automático,Credito Fiscal,765,
+Facturas activo fijo,Cantidad,Automático,Credito Fiscal,524,
+Notas de crédito recibidas y emitidas por retención,Cantidad,Automático,Credito Fiscal,527,
+Notas de débito recibidas y emitidas por retención,Cantidad,Automático,Credito Fiscal,531,
+DIN importaciones del giro,Cantidad,Manual,Credito Fiscal,534,
+DIN importaciones activo fijo,Cantidad,Manual,Credito Fiscal,536,
+Tasa establecida para el PPM por utilidades del régimen semi integrado u otros regímenes de renta efectiva. ,Valor,Manual,PPM,115,
+Postergación del IVA,Click,Manual,Postergación IVA,756,
+Acogido a suspensión PPM (Art 1°bis Ley 19.420 y 1°bis Ley 19.606),Click,Manual,PPM,750,
+Base imponible para calcular el PPM (es manipulable de forma manual),Valor,Automático,PPM,563,

@@ -51,6 +51,10 @@ class TaxForm(TimeStampedModel):
         ('paid', 'Pagado'),
     ]
     
+    # Company reference
+    company = models.ForeignKey('companies.Company', on_delete=models.CASCADE, null=True, blank=True)
+
+    # Legacy fields - mantener temporalmente para migración
     company_rut = models.CharField(max_length=12)
     company_dv = models.CharField(max_length=1)
     template = models.ForeignKey(TaxFormTemplate, on_delete=models.PROTECT)
@@ -78,20 +82,48 @@ class TaxForm(TimeStampedModel):
     # SII
     sii_folio = models.CharField(max_length=50, blank=True)
     sii_response = models.JSONField(default=dict)
+
+    # Detail extraction tracking
+    details_extracted = models.BooleanField(
+        default=False,
+        help_text="Indica si se extrajeron los detalles completos del formulario F29"
+    )
+    details_extracted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha y hora cuando se extrajeron los detalles del formulario"
+    )
+    details_extraction_method = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Método usado para extraer detalles (f29_rpa, manual, etc.)"
+    )
+    details_data = models.JSONField(
+        default=dict,
+        help_text="Datos detallados extraídos del formulario (campos específicos, subtablas, etc.)"
+    )
     
     class Meta:
         db_table = 'tax_forms'
         verbose_name = 'Tax Form'
         verbose_name_plural = 'Tax Forms'
-        unique_together = ['company_rut', 'company_dv', 'template', 'tax_period']
+        unique_together = [
+            ['company_rut', 'company_dv', 'template', 'tax_period'],  # Legacy
+            ['company', 'template', 'tax_period'],  # New constraint
+        ]
         ordering = ['-tax_year', '-tax_month', 'template__form_code']
         indexes = [
-            models.Index(fields=['company_rut', 'company_dv']),
+            models.Index(fields=['company_rut', 'company_dv']),  # Legacy
+            models.Index(fields=['company']),  # New index
             models.Index(fields=['template', 'tax_period']),
             models.Index(fields=['status', 'due_date']),
+            models.Index(fields=['details_extracted']),  # Detail extraction status
+            models.Index(fields=['details_extracted_at']),  # Detail extraction date
         ]
     
     def __str__(self):
+        if self.company:
+            return f"{self.company.tax_id} - {self.template.form_code} {self.tax_period}"
         return f"{self.company_rut}-{self.company_dv} - {self.template.form_code} {self.tax_period}"
     
     @property
@@ -108,6 +140,30 @@ class TaxForm(TimeStampedModel):
             self.balance_due = self.total_tax_due - self.total_paid
             return self.balance_due
         return 0
+
+    @property
+    def needs_detail_extraction(self):
+        """Verifica si el formulario necesita extracción de detalles"""
+        return not self.details_extracted and self.sii_folio
+
+    @property
+    def has_recent_details(self):
+        """Verifica si los detalles fueron extraídos recientemente (últimas 24h)"""
+        if not self.details_extracted_at:
+            return False
+        from datetime import timedelta
+        from django.utils import timezone
+        return self.details_extracted_at > (timezone.now() - timedelta(hours=24))
+
+    def mark_details_extracted(self, method: str, details_data: dict = None):
+        """Marca el formulario como que tiene detalles extraídos"""
+        from django.utils import timezone
+        self.details_extracted = True
+        self.details_extracted_at = timezone.now()
+        self.details_extraction_method = method
+        if details_data:
+            self.details_data = details_data
+        self.save()
 
 
 class TaxFormField(TimeStampedModel):

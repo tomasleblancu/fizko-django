@@ -8,71 +8,72 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         steps_data = [
             {
-                'name': 'welcome',
-                'title': 'Bienvenida',
-                'description': 'Paso de bienvenida al sistema Fizko',
+                'name': 'user_info',
+                'title': 'Información Personal',
+                'description': 'Información personal del usuario y configuración de perfil',
                 'step_order': 1,
                 'is_required': True,
                 'is_active': True,
                 'step_config': {
-                    'type': 'welcome',
+                    'type': 'form',
+                    'fields': ['first_name', 'last_name', 'phone', 'profession', 'experience'],
                     'show_progress': True,
                     'allow_skip': False
                 }
             },
             {
-                'name': 'profile',
-                'title': 'Perfil Personal',
-                'description': 'Información personal del usuario',
+                'name': 'business_info',
+                'title': 'Información del Negocio',
+                'description': 'Detalles sobre la empresa y tipo de negocio',
                 'step_order': 2,
                 'is_required': True,
                 'is_active': True,
                 'step_config': {
                     'type': 'form',
-                    'fields': ['first_name', 'last_name', 'phone'],
+                    'fields': ['business_name', 'business_type', 'industry', 'employees_count', 'monthly_income'],
                     'show_progress': True,
                     'allow_skip': False
                 }
             },
             {
                 'name': 'company',
-                'title': 'Información de Empresa',
-                'description': 'Datos de la empresa del usuario',
+                'title': 'Credenciales SII',
+                'description': 'Conexión con el Servicio de Impuestos Internos para automatizar la gestión tributaria',
                 'step_order': 3,
                 'is_required': True,
                 'is_active': True,
                 'step_config': {
                     'type': 'form',
-                    'fields': ['company_name', 'rut', 'address'],
+                    'fields': ['tax_id', 'password', 'email', 'mobile_phone'],
                     'show_progress': True,
-                    'allow_skip': False
-                }
-            },
-            {
-                'name': 'business',
-                'title': 'Información del Negocio',
-                'description': 'Detalles específicos del negocio',
-                'step_order': 4,
-                'is_required': True,
-                'is_active': True,
-                'step_config': {
-                    'type': 'form',
-                    'fields': ['business_type', 'industry', 'employees_count'],
-                    'show_progress': True,
-                    'allow_skip': False
+                    'allow_skip': False,
+                    'sensitive': True,
+                    'description': 'Estos datos se utilizan para conectar con el SII y sincronizar automáticamente documentos tributarios'
                 }
             }
         ]
 
         created_count = 0
         updated_count = 0
+        deactivated_count = 0
+
+        # First, deactivate old steps that are no longer needed
+        old_step_names = ['welcome', 'profile', 'business']
+        old_steps = OnboardingStep.objects.filter(name__in=old_step_names)
+        for old_step in old_steps:
+            old_step.is_active = False
+            old_step.save()
+            deactivated_count += 1
+            self.stdout.write(
+                self.style.WARNING(f'Deactivated old step: {old_step.name} - {old_step.title}')
+            )
 
         for step_data in steps_data:
             step, created = OnboardingStep.objects.get_or_create(
                 name=step_data['name'],
                 defaults=step_data
             )
-            
+
             if created:
                 created_count += 1
                 self.stdout.write(
@@ -94,6 +95,8 @@ class Command(BaseCommand):
                 f'\nOnboarding steps seeded successfully!'
                 f'\nCreated: {created_count} steps'
                 f'\nUpdated: {updated_count} steps'
-                f'\nTotal: {OnboardingStep.objects.count()} steps'
+                f'\nDeactivated: {deactivated_count} steps'
+                f'\nActive steps: {OnboardingStep.objects.filter(is_active=True).count()}'
+                f'\nTotal steps: {OnboardingStep.objects.count()}'
             )
         )

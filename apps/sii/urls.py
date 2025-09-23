@@ -6,6 +6,8 @@ from .views import (
     list_sii_dtes, get_dte_detail, get_dtes_summary, sync_dtes_from_sii,
     sync_company_dtes, test_sii_connection, get_sync_history, sync_taxpayer_info
 )
+# Importar views F29 de manera modular
+from .views.f29 import obtener_formulario_f29, listar_codigos_f29, health_f29, buscar_formularios_f29
 
 app_name = 'sii'
 
@@ -32,7 +34,13 @@ urlpatterns = [
     path('dtes/<int:dte_id>/', get_dte_detail, name='get_dte_detail'),
     path('dtes/summary/', get_dtes_summary, name='get_dtes_summary'),
     path('dtes/sync/', sync_dtes_from_sii, name='sync_dtes'),
-    
+
+    # F29 endpoints (modular addition)
+    path('f29/formulario/', obtener_formulario_f29, name='obtener_formulario_f29'),
+    path('f29/buscar/', buscar_formularios_f29, name='buscar_formularios_f29'),
+    path('f29/codigos/', listar_codigos_f29, name='listar_codigos_f29'),
+    path('f29/health/', health_f29, name='health_f29'),
+
     # Router URLs
     path('', include(router.urls)),
 ]

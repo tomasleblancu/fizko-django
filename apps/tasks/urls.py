@@ -12,6 +12,12 @@ router.register('comments', views.TaskCommentViewSet, basename='task-comment')
 router.register('attachments', views.TaskAttachmentViewSet, basename='task-attachment')
 router.register('logs', views.TaskLogViewSet, basename='task-log')
 
+# Endpoints para procesos
+router.register('processes', views.ProcessViewSet, basename='process')
+router.register('process-templates', views.ProcessTemplateViewSet, basename='process-template')
+router.register('process-tasks', views.ProcessTaskViewSet, basename='process-task')
+router.register('process-executions', views.ProcessExecutionViewSet, basename='process-execution')
+
 urlpatterns = [
     path('', include(router.urls)),
 ]

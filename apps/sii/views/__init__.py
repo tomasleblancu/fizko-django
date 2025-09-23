@@ -26,24 +26,26 @@ from .sync import sync_company_dtes, sync_taxpayer_info, get_sync_history, test_
 __all__ = [
     # Health & Status
     'health_check',
-    'sii_status', 
+    'sii_status',
     'sii_auth_status',
-    
+
     # Contributor
     'consultar_contribuyente',
-    
+
     # Credentials
     'verificar_credenciales',
-    
+
     # Documents
     'list_sii_dtes',
     'get_dte_detail',
-    'get_dtes_summary', 
+    'get_dtes_summary',
     'sync_dtes_from_sii',
-    
+
     # Sync
     'sync_company_dtes',
-    'sync_taxpayer_info', 
+    'sync_taxpayer_info',
     'get_sync_history',
     'test_sii_connection'
+
+    # F29 module available separately in .f29
 ]

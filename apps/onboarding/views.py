@@ -175,22 +175,32 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Marcar onboarding como completado
             self.complete(request)
             
-            # INICIAR SINCRONIZACIÓN HISTÓRICA COMPLETA al finalizar onboarding
+            # INICIAR SINCRONIZACIONES DE DTES al finalizar onboarding
             company_id = None
             if company_result.get('company_data') and company_result['company_data'].get('company_id'):
                 company_id = company_result['company_data']['company_id']
             elif existing_user_company:
                 company_id = existing_user_company.id
-            
+
+            # Ejecutar las tareas de sincronización solo al finalizar el onboarding
+            initial_sync_result = None
             historical_sync_result = None
+
             if company_id:
+                # 1. Sincronización inicial rápida (últimos 2 meses)
+                initial_sync_result = self._start_initial_dte_sync(company_id)
+
+                # 2. Sincronización histórica completa (todo el historial)
                 historical_sync_result = self._start_complete_historical_sync(company_id)
-            
+
             return Response({
                 'status': 'success',
                 'message': message,
                 'company_result': company_result,
-                'historical_sync_result': historical_sync_result,
+                'sync_results': {
+                    'initial_sync': initial_sync_result,
+                    'historical_sync': historical_sync_result
+                },
                 'finalized_at': timezone.now(),
                 'next_steps': 'Su historial contable completo se está procesando en segundo plano. Puede comenzar a usar la plataforma con los datos recientes ya disponibles.'
             })
@@ -277,6 +287,61 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
     
+    def _validate_company_data(self, step_data):
+        """
+        Valida datos requeridos para operaciones de empresa
+        Returns: dict con 'success': True o 'error': mensaje
+        """
+        required_fields = ['business_name', 'tax_id', 'password', 'email']
+        missing_fields = [field for field in required_fields if not step_data.get(field)]
+
+        if missing_fields:
+            return {
+                'error': 'MISSING_REQUIRED_FIELDS',
+                'message': f'Campos requeridos faltantes: {", ".join(missing_fields)}',
+                'missing_fields': missing_fields
+            }
+
+        return {'success': True}
+
+    def _get_company_models(self):
+        """Retorna todos los imports necesarios para operaciones de empresa"""
+        from apps.companies.models import Company
+        from apps.taxpayers.models import TaxPayer, TaxpayerSiiCredentials
+        from apps.accounts.models import Role, UserRole
+        from apps.sii.api.servicev2 import SIIServiceV2
+
+        return Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2
+
+    def _setup_user_role_for_company(self, user, company, role_name='owner'):
+        """
+        Maneja toda la lógica de asignación de roles para un usuario en una empresa
+        """
+        Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2 = self._get_company_models()
+
+        # Asegurar que los roles por defecto existen
+        self._ensure_default_roles_exist()
+
+        try:
+            role = Role.objects.get(name=role_name)
+            user_role, created = UserRole.objects.get_or_create(
+                user=user,
+                company=company,
+                role=role,
+                defaults={'active': True}
+            )
+
+            return {
+                'success': True,
+                'role': role_name,
+                'created': created
+            }
+        except Role.DoesNotExist:
+            return {
+                'error': 'ROLE_NOT_FOUND',
+                'message': f'Rol {role_name} no existe'
+            }
+
     def _verify_sii_credentials(self, step_data):
         """
         Verifica las credenciales SII de forma centralizada
@@ -286,14 +351,14 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Validar datos requeridos para verificación
             required_fields = ['tax_id', 'password']
             missing_fields = [field for field in required_fields if not step_data.get(field)]
-            
+
             if missing_fields:
                 return {
                     'error': 'MISSING_CREDENTIALS',
                     'message': f'Faltan credenciales requeridas: {", ".join(missing_fields)}'
                 }
-            
-            from apps.sii.api.servicev2 import SIIServiceV2
+
+            Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2 = self._get_company_models()
             
             tax_id = step_data['tax_id']
             password = step_data['password']
@@ -333,36 +398,26 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         SOLO después de verificar credenciales SII
         """
         try:
-            # Validar datos requeridos
-            required_fields = ['business_name', 'tax_id', 'password', 'email']
-            missing_fields = [field for field in required_fields if not step_data.get(field)]
-            
-            if missing_fields:
-                return {
-                    'error': 'MISSING_REQUIRED_FIELDS',
-                    'message': f'Campos requeridos faltantes: {", ".join(missing_fields)}',
-                    'missing_fields': missing_fields
-                }
-            
-            from apps.companies.models import Company
-            from apps.taxpayers.models import TaxPayer, TaxpayerSiiCredentials
+            # Validar datos requeridos usando método centralizado
+            validation_result = self._validate_company_data(step_data)
+            if validation_result.get('error'):
+                return validation_result
+
+            Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2 = self._get_company_models()
             
             tax_id = step_data['tax_id']
             password = step_data['password']
-            business_name = step_data['business_name']
-            email = step_data['email']
-            mobile_phone = step_data.get('mobile_phone', '')
-            
+
             # Verificar si la empresa ya existe
             existing_company = Company.objects.filter(tax_id=tax_id).first()
-            
+
             if existing_company:
                 # Empresa existe - verificar si el usuario ya está asociado
                 existing_credentials = TaxpayerSiiCredentials.objects.filter(
                     company=existing_company,
                     user=request.user
                 ).first()
-                
+
                 if existing_credentials:
                     return {
                         'status': 'success',
@@ -384,32 +439,20 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     )
                     credentials.set_password(password)
                     credentials.save()
-                    
-                    # CREAR ROL DE USUARIO: Asignar rol adecuado para empresa existente
-                    # Si es la primera vez que se conecta, podría ser owner, si ya existen owners, sería admin
-                    from apps.accounts.models import Role, UserRole
-                    
-                    # Asegurar que los roles existen
-                    self._ensure_default_roles_exist()
-                    
-                    # Verificar si ya hay owners en la empresa
+
+                    # Determinar rol: owner si no hay owners, sino admin
                     existing_owners = UserRole.objects.filter(
                         company=existing_company,
                         role__name='owner',
                         active=True
                     ).count()
-                    
-                    # Si no hay owners, este usuario se convierte en owner, sino admin
+
                     role_name = 'owner' if existing_owners == 0 else 'admin'
-                    role = Role.objects.get(name=role_name)
-                    
-                    user_role, created = UserRole.objects.get_or_create(
-                        user=request.user,
-                        company=existing_company,
-                        role=role,
-                        defaults={'active': True}
-                    )
-                    
+                    role_result = self._setup_user_role_for_company(request.user, existing_company, role_name)
+
+                    if role_result.get('error'):
+                        return role_result
+
                     return {
                         'status': 'success',
                         'message': 'Usuario asignado a empresa existente',
@@ -497,32 +540,19 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Crea la empresa con credenciales SII desde datos del onboarding
         """
         try:
-            # Validar datos requeridos
-            required_fields = ['business_name', 'tax_id', 'password', 'email']
-            missing_fields = [field for field in required_fields if not step_data.get(field)]
-            
-            if missing_fields:
-                return {
-                    'error': 'MISSING_REQUIRED_FIELDS',
-                    'message': f'Campos requeridos faltantes: {", ".join(missing_fields)}',
-                    'missing_fields': missing_fields
-                }
-            
-            # Importar modelos necesarios
-            from apps.companies.models import Company
-            from apps.taxpayers.models import TaxPayer, TaxpayerSiiCredentials
-            from apps.accounts.models import Role, UserRole
-            from apps.sii.api.servicev2 import SIIServiceV2
+            # Validar datos requeridos usando método centralizado
+            validation_result = self._validate_company_data(step_data)
+            if validation_result.get('error'):
+                return validation_result
+
+            Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2 = self._get_company_models()
             
             tax_id = step_data['tax_id']
             password = step_data['password']
             business_name = step_data['business_name']
             email = step_data['email']
             mobile_phone = step_data.get('mobile_phone', '')
-            
-            # Asegurar que los roles por defecto existen
-            self._ensure_default_roles_exist()
-            
+
             # Las credenciales ya fueron verificadas en _verify_sii_credentials
             # Proceder directamente a crear la empresa
             
@@ -598,36 +628,15 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             credentials.save()
             
             # CREAR ROL DE USUARIO: Asignar al usuario como OWNER de la empresa
-            try:
-                owner_role = Role.objects.get(name='owner')
-                user_role, created = UserRole.objects.get_or_create(
-                    user=request.user,
-                    company=company,
-                    role=owner_role,
-                    defaults={'active': True}
-                )
-                if created:
-                    print(f"✅ Usuario {request.user.email} asignado como OWNER de {company.business_name}")
-                else:
-                    print(f"ℹ️ Usuario {request.user.email} ya era OWNER de {company.business_name}")
-            except Role.DoesNotExist:
-                print(f"⚠️ Rol 'owner' no existe - creando roles por defecto...")
-                self._ensure_default_roles_exist()
-                owner_role = Role.objects.get(name='owner')
-                user_role = UserRole.objects.create(
-                    user=request.user,
-                    company=company,
-                    role=owner_role,
-                    active=True
-                )
-                print(f"✅ Usuario {request.user.email} asignado como OWNER de {company.business_name}")
-            
-            # Disparar sincronización inicial de DTEs inmediatamente después de crear la empresa
-            dte_sync_result = self._start_initial_dte_sync(company.id)
-            
+            role_result = self._setup_user_role_for_company(request.user, company, 'owner')
+            if role_result.get('error'):
+                return role_result
+
+            print(f"✅ Usuario {request.user.email} asignado como OWNER de {company.business_name}")
+
             return {
                 'status': 'success',
-                'message': 'Empresa creada exitosamente desde onboarding y sincronización de DTEs iniciada',
+                'message': 'Empresa creada exitosamente desde onboarding',
                 'company_data': {
                     'company_id': company.id,
                     'tax_id': company.tax_id,
@@ -637,8 +646,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     'credentials_stored': True,
                     'user_role': 'owner'
                 },
-                'user_role_created': True,
-                'dte_sync_result': dte_sync_result
+                'user_role_created': True
             }
                 
         except Exception as e:
@@ -655,7 +663,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Solo obtiene documentos de los últimos 2 meses para mostrar datos rápido
         """
         try:
-            from datetime import datetime, date, timedelta
+            from datetime import date, timedelta
             from apps.companies.models import Company
             
             # Obtener la empresa
@@ -724,8 +732,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
     def _start_complete_historical_sync(self, company_id):
         """
-        Inicia sincronización COMPLETA del historial de DTEs
-        Obtiene TODOS los documentos desde el inicio de actividades
+        Inicia sincronización COMPLETA del historial de DTEs y formularios tributarios
+        Obtiene TODOS los documentos y formularios desde el inicio de actividades
         Se ejecuta al FINALIZAR el onboarding completo
         """
         try:
@@ -734,28 +742,52 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Obtener la empresa
             company = Company.objects.get(id=company_id)
             
-            # Importar la tarea de Celery para sincronización COMPLETA
-            from apps.sii.tasks import sync_sii_documents_full_history_task
-            
-            # Enviar tarea a Celery para procesamiento asíncrono COMPLETO
+            # Importar las tareas de Celery para sincronización COMPLETA
+            from apps.sii.tasks import sync_sii_documents_full_history_task, sync_all_historical_forms_task
+
+            # Enviar tareas a Celery para procesamiento asíncrono COMPLETO
             rut_parts = company.tax_id.split('-')
-            task_result = sync_sii_documents_full_history_task.delay(
-                company_rut=rut_parts[0],  # RUT sin guión
-                company_dv=rut_parts[1] if len(rut_parts) > 1 else 'K',  # DV
-                user_email=getattr(self.request.user, 'email', 'system@fizko.com')
+            company_rut = rut_parts[0]  # RUT sin guión
+            company_dv = rut_parts[1] if len(rut_parts) > 1 else 'K'  # DV
+            user_email = getattr(self.request.user, 'email', 'system@fizko.com')
+
+            # 1. Sincronización de documentos DTEs históricos
+            documents_task_result = sync_sii_documents_full_history_task.delay(
+                company_rut=company_rut,
+                company_dv=company_dv,
+                user_email=user_email
             )
-            
+
+            # 2. Sincronización de formularios tributarios históricos
+            forms_task_result = sync_all_historical_forms_task.delay(
+                company_rut=company_rut,
+                company_dv=company_dv,
+                user_email=user_email,
+                form_type='f29'
+            )
+
             return {
                 'status': 'success',
-                'message': 'Sincronización COMPLETA del historial iniciada - procesando TODOS los documentos históricos',
-                'task_id': task_result.id,
+                'message': 'Sincronización COMPLETA del historial iniciada - procesando TODOS los documentos y formularios históricos',
+                'documents_task_id': documents_task_result.id,
+                'forms_task_id': forms_task_result.id,
                 'company_id': company_id,
                 'sync_type': 'full_history',
                 'sync_period': {
                     'description': 'Historial completo desde inicio de actividades'
                 },
-                'estimated_completion': '15-30 minutos (depende del volumen histórico)',
-                'note': 'Esta sincronización obtendrá todos los DTEs disponibles desde el inicio de actividades de la empresa'
+                'estimated_completion': '20-40 minutos (depende del volumen histórico)',
+                'note': 'Esta sincronización obtendrá todos los DTEs y formularios tributarios disponibles desde el inicio de actividades de la empresa',
+                'tasks': {
+                    'documents': {
+                        'task_id': documents_task_result.id,
+                        'description': 'Documentos electrónicos (DTEs) históricos'
+                    },
+                    'forms': {
+                        'task_id': forms_task_result.id,
+                        'description': 'Formularios tributarios (F29) históricos'
+                    }
+                }
             }
             
         except Company.DoesNotExist:
@@ -918,7 +950,7 @@ def test_onboarding_company_integration(request):
         User = get_user_model()
         
         # Crear usuario de prueba
-        test_user, created = User.objects.get_or_create(
+        test_user, _ = User.objects.get_or_create(
             username='onboarding_test_user',
             defaults={
                 'email': 'onboarding_test@fizko.com',

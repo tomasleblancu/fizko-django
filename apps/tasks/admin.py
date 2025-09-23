@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import TaskCategory, Task, TaskDependency, TaskComment, TaskAttachment, TaskLog, TaskSchedule
+from .models import (
+    TaskCategory, Task, TaskDependency, TaskComment, TaskAttachment, TaskLog, TaskSchedule,
+    Process, ProcessTemplate, ProcessTask, ProcessExecution
+)
 
 @admin.register(TaskCategory)
 class TaskCategoryAdmin(admin.ModelAdmin):
@@ -29,3 +32,66 @@ class TaskScheduleAdmin(admin.ModelAdmin):
     list_display = ('name', 'schedule_type', 'is_active', 'next_run', 'run_count', 'is_expired')
     list_filter = ('schedule_type', 'is_active')
     readonly_fields = ('is_expired',)
+
+
+@admin.register(Process)
+class ProcessAdmin(admin.ModelAdmin):
+    list_display = ('name', 'process_type', 'status', 'company_full_rut', 'progress_percentage', 'due_date', 'is_overdue')
+    list_filter = ('status', 'process_type', 'is_template', 'due_date')
+    search_fields = ('name', 'description', 'company_rut', 'assigned_to', 'created_by')
+    readonly_fields = ('progress_percentage', 'company_full_rut', 'is_overdue', 'current_step')
+    date_hierarchy = 'due_date'
+
+    fieldsets = (
+        ('Información Básica', {
+            'fields': ('name', 'description', 'process_type', 'status')
+        }),
+        ('Empresa', {
+            'fields': ('company_rut', 'company_dv', 'company_full_rut')
+        }),
+        ('Asignación', {
+            'fields': ('created_by', 'assigned_to')
+        }),
+        ('Fechas', {
+            'fields': ('start_date', 'due_date', 'completed_at')
+        }),
+        ('Configuración', {
+            'fields': ('is_template', 'parent_process', 'config_data'),
+            'classes': ('collapse',)
+        }),
+        ('Estado', {
+            'fields': ('progress_percentage', 'current_step', 'is_overdue'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(ProcessTemplate)
+class ProcessTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'process_type', 'is_active', 'created_by', 'created_at')
+    list_filter = ('process_type', 'is_active')
+    search_fields = ('name', 'description', 'created_by')
+
+
+class ProcessTaskInline(admin.TabularInline):
+    model = ProcessTask
+    extra = 0
+    fields = ('task', 'execution_order', 'is_optional', 'can_run_parallel')
+    ordering = ('execution_order',)
+
+
+@admin.register(ProcessTask)
+class ProcessTaskAdmin(admin.ModelAdmin):
+    list_display = ('process', 'task', 'execution_order', 'is_optional', 'can_run_parallel')
+    list_filter = ('is_optional', 'can_run_parallel')
+    search_fields = ('process__name', 'task__title')
+    ordering = ('process', 'execution_order')
+
+
+@admin.register(ProcessExecution)
+class ProcessExecutionAdmin(admin.ModelAdmin):
+    list_display = ('process', 'status', 'progress_percentage', 'started_at', 'duration')
+    list_filter = ('status', 'started_at')
+    search_fields = ('process__name',)
+    readonly_fields = ('progress_percentage', 'duration')
+    date_hierarchy = 'started_at'

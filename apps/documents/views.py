@@ -161,6 +161,14 @@ class DocumentViewSet(viewsets.ViewSet):
             tipo_operacion = request.query_params.get('tipo_operacion')  # ✅ Sin default, muestra TODOS por defecto
             fecha_desde = request.query_params.get('fecha_desde')
             fecha_hasta = request.query_params.get('fecha_hasta')
+            search = request.query_params.get('search')
+            document_type = request.query_params.get('document_type')
+            estado = request.query_params.get('estado')
+            nombre_receptor = request.query_params.get('nombre_receptor')
+            rut_receptor = request.query_params.get('rut_receptor')
+            monto_min = request.query_params.get('monto_min')
+            monto_max = request.query_params.get('monto_max')
+            ordering = request.query_params.get('ordering', '-issue_date')  # Default order
             page_size = int(request.query_params.get('page_size', 50))
             page = int(request.query_params.get('page', 1))
             
@@ -189,14 +197,83 @@ class DocumentViewSet(viewsets.ViewSet):
                     queryset = queryset.filter(issue_date__gte=fecha_desde_dt)
                 except ValueError:
                     pass
-            
+
             if fecha_hasta:
                 try:
                     fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d').date()
                     queryset = queryset.filter(issue_date__lte=fecha_hasta_dt)
                 except ValueError:
                     pass
-            
+
+            # Filtro de búsqueda de texto
+            if search:
+                search_query = Q(
+                    folio__icontains=search
+                ) | Q(
+                    recipient_name__icontains=search
+                ) | Q(
+                    recipient_rut__icontains=search
+                ) | Q(
+                    issuer_name__icontains=search
+                ) | Q(
+                    document_type__name__icontains=search
+                ) | Q(
+                    document_type__code__icontains=search
+                )
+                queryset = queryset.filter(search_query)
+
+            # Filtro por tipo de documento
+            if document_type:
+                try:
+                    document_type_code = int(document_type)
+                    queryset = queryset.filter(document_type__code=document_type_code)
+                except ValueError:
+                    # Si no es un código numérico, buscar por nombre
+                    queryset = queryset.filter(document_type__name__icontains=document_type)
+
+            # Filtro por estado
+            if estado:
+                queryset = queryset.filter(status=estado)
+
+            # Filtro por nombre de receptor
+            if nombre_receptor:
+                queryset = queryset.filter(recipient_name__icontains=nombre_receptor)
+
+            # Filtro por RUT de receptor
+            if rut_receptor:
+                # Limpiar el RUT de posibles separadores
+                rut_clean = rut_receptor.replace('.', '').replace('-', '')
+                if len(rut_clean) >= 2:
+                    rut_number = rut_clean[:-1]
+                    rut_dv = rut_clean[-1].upper()
+                    queryset = queryset.filter(recipient_rut=rut_number, recipient_dv=rut_dv)
+                else:
+                    # Búsqueda parcial si el formato no es completo
+                    queryset = queryset.filter(recipient_rut__icontains=rut_clean)
+
+            # Filtros por monto
+            if monto_min:
+                try:
+                    monto_min_val = float(monto_min)
+                    queryset = queryset.filter(total_amount__gte=monto_min_val)
+                except ValueError:
+                    pass
+
+            if monto_max:
+                try:
+                    monto_max_val = float(monto_max)
+                    queryset = queryset.filter(total_amount__lte=monto_max_val)
+                except ValueError:
+                    pass
+
+            # Aplicar ordenamiento
+            if ordering:
+                # Validar que el campo de ordering existe
+                valid_fields = ['issue_date', 'folio', 'total_amount', 'document_type', 'recipient_name', 'issuer_name']
+                order_field = ordering.lstrip('-')
+                if order_field in valid_fields:
+                    queryset = queryset.order_by(ordering)
+
             # Aplicar paginación
             total_count = queryset.count()
             start_index = (page - 1) * page_size

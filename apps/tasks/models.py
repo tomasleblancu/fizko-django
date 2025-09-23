@@ -220,6 +220,232 @@ class TaskAttachment(TimeStampedModel):
         return f"{size:.1f} TB"
 
 
+class Process(TimeStampedModel):
+    """
+    Proceso completo que agrupa múltiples tareas relacionadas
+    """
+    PROCESS_STATUS = [
+        ('draft', 'Borrador'),
+        ('active', 'Activo'),
+        ('paused', 'Pausado'),
+        ('completed', 'Completado'),
+        ('failed', 'Fallido'),
+        ('cancelled', 'Cancelado'),
+    ]
+
+    PROCESS_TYPES = [
+        ('tax_monthly', 'Declaración Mensual'),
+        ('tax_annual', 'Declaración Anual'),
+        ('document_sync', 'Sincronización Documentos'),
+        ('sii_integration', 'Integración SII'),
+        ('custom', 'Personalizado'),
+    ]
+
+    # Identificación
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    process_type = models.CharField(max_length=50, choices=PROCESS_TYPES)
+
+    # Asociación a empresa
+    company_rut = models.CharField(max_length=12)
+    company_dv = models.CharField(max_length=1)
+
+    # Estado del proceso
+    status = models.CharField(max_length=20, choices=PROCESS_STATUS, default='draft')
+
+    # Configuración
+    is_template = models.BooleanField(default=False)
+    parent_process = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE)
+
+    # Usuario responsable
+    created_by = models.CharField(max_length=255, help_text="Email del usuario creador")
+    assigned_to = models.CharField(max_length=255, blank=True, help_text="Email del usuario responsable")
+
+    # Fechas importantes
+    start_date = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Configuración del proceso
+    config_data = models.JSONField(default=dict, help_text="Configuración específica del proceso")
+
+    class Meta:
+        db_table = 'processes'
+        verbose_name = 'Process'
+        verbose_name_plural = 'Processes'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company_rut', 'company_dv']),
+            models.Index(fields=['status', 'process_type']),
+            models.Index(fields=['due_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_status_display()})"
+
+    @property
+    def progress_percentage(self):
+        """Calcula progreso basado en tareas completadas"""
+        tasks = self.process_tasks.all()
+        if not tasks.exists():
+            return 0
+        completed = tasks.filter(task__status='completed').count()
+        return int((completed / tasks.count()) * 100)
+
+    @property
+    def current_step(self):
+        """Obtiene el paso actual del proceso"""
+        return self.process_tasks.filter(
+            task__status__in=['pending', 'in_progress']
+        ).order_by('execution_order').first()
+
+    @property
+    def is_overdue(self):
+        """Verifica si el proceso está vencido"""
+        if self.status in ['completed', 'cancelled'] or not self.due_date:
+            return False
+        from django.utils import timezone
+        return timezone.now() > self.due_date
+
+    @property
+    def company_full_rut(self):
+        if self.company_rut and self.company_dv:
+            return f"{self.company_rut}-{self.company_dv}"
+        return ""
+
+    def start_process(self):
+        """Inicia la ejecución del proceso"""
+        from django.utils import timezone
+        self.status = 'active'
+        self.start_date = timezone.now()
+        self.save()
+
+    def complete_process(self):
+        """Completa el proceso"""
+        from django.utils import timezone
+        self.status = 'completed'
+        self.completed_at = timezone.now()
+        self.save()
+
+    def fail_process(self, error_message=""):
+        """Marca el proceso como fallido"""
+        from django.utils import timezone
+        self.status = 'failed'
+        self.completed_at = timezone.now()
+        self.save()
+
+
+class ProcessTemplate(TimeStampedModel):
+    """
+    Plantillas reutilizables de procesos
+    """
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    process_type = models.CharField(max_length=50, choices=Process.PROCESS_TYPES)
+    template_data = models.JSONField(default=dict, help_text="Configuración de la plantilla")
+    is_active = models.BooleanField(default=True)
+    created_by = models.CharField(max_length=255, help_text="Email del usuario creador")
+
+    class Meta:
+        db_table = 'process_templates'
+        verbose_name = 'Process Template'
+        verbose_name_plural = 'Process Templates'
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_process_type_display()})"
+
+
+class ProcessTask(TimeStampedModel):
+    """
+    Relación entre procesos y tareas con metadata adicional
+    """
+    process = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='process_tasks')
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='task_processes')
+
+    # Orden de ejecución
+    execution_order = models.IntegerField(default=0)
+
+    # Condiciones para ejecutar esta tarea
+    execution_conditions = models.JSONField(default=dict, help_text="Condiciones para ejecutar la tarea")
+
+    # Es opcional en el proceso?
+    is_optional = models.BooleanField(default=False)
+
+    # Se ejecuta en paralelo con otras tareas?
+    can_run_parallel = models.BooleanField(default=False)
+
+    # Datos específicos para esta tarea en el contexto del proceso
+    context_data = models.JSONField(default=dict, help_text="Datos de contexto para la tarea")
+
+    class Meta:
+        db_table = 'process_tasks'
+        verbose_name = 'Process Task'
+        verbose_name_plural = 'Process Tasks'
+        unique_together = ['process', 'task']
+        ordering = ['execution_order']
+
+    def __str__(self):
+        return f"{self.process.name} -> {self.task.title}"
+
+
+class ProcessExecution(TimeStampedModel):
+    """
+    Instancia de ejecución de un proceso con seguimiento detallado
+    """
+    EXECUTION_STATUS = [
+        ('running', 'Ejecutándose'),
+        ('paused', 'Pausado'),
+        ('completed', 'Completado'),
+        ('failed', 'Fallido'),
+        ('cancelled', 'Cancelado'),
+    ]
+
+    process = models.ForeignKey(Process, on_delete=models.CASCADE, related_name='executions')
+    status = models.CharField(max_length=20, choices=EXECUTION_STATUS, default='running')
+
+    # Timestamps
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Contexto de ejecución
+    execution_context = models.JSONField(default=dict, help_text="Contexto global de la ejecución")
+    current_step = models.IntegerField(default=0)
+
+    # Métricas
+    total_steps = models.IntegerField(default=0)
+    completed_steps = models.IntegerField(default=0)
+    failed_steps = models.IntegerField(default=0)
+
+    # Error tracking
+    last_error = models.TextField(blank=True)
+    error_count = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'process_executions'
+        verbose_name = 'Process Execution'
+        verbose_name_plural = 'Process Executions'
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return f"Ejecución {self.id} - {self.process.name}"
+
+    @property
+    def progress_percentage(self):
+        """Progreso de la ejecución"""
+        if self.total_steps == 0:
+            return 0
+        return int((self.completed_steps / self.total_steps) * 100)
+
+    @property
+    def duration(self):
+        """Duración de la ejecución"""
+        if not self.completed_at:
+            from django.utils import timezone
+            return timezone.now() - self.started_at
+        return self.completed_at - self.started_at
+
+
 class TaskLog(TimeStampedModel):
     """
     Log de ejecución de tareas

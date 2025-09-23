@@ -141,15 +141,18 @@ class RealSIIService:
             self.driver.quit()
             self.driver = None
 
-    def authenticate(self) -> bool:
+    def authenticate(self, force_auth: bool = False) -> bool:
         """
         Autentica con el SII usando Selenium - verifica cookies existentes primero
+
+        Args:
+            force_auth: Si es True, fuerza nueva autenticación sin revisar cookies
         """
         try:
             logger.info(f"🔐 Starting SII authentication for {self.tax_id}")
-            
-            # Verificar si ya tenemos cookies válidas
-            if self.cookies and self._are_cookies_valid():
+
+            # Verificar si ya tenemos cookies válidas (solo si no es forzado)
+            if not force_auth and self.cookies and self._are_cookies_valid():
                 logger.info(f"✅ Using existing valid cookies for {self.tax_id} - skipping re-authentication")
                 self.authenticated = True
                 return True
@@ -678,6 +681,116 @@ class RealSIIService:
                 logger.info(f"🗑️ Invalidated all active sessions for {self.tax_id}")
         except Exception as e:
             logger.warning(f"⚠️ Error invalidating session for {self.tax_id}: {str(e)}")
+
+    def obtener_formulario_f29(self, folio: str, periodo: str = None) -> Dict[str, Any]:
+        """
+        Obtiene formulario F29 específico usando el módulo F29.
+        Método agregado para compatibilidad con funcionalidad F29.
+        """
+        if not self.authenticated:
+            self.authenticate()
+
+        logger.info(f"📋 Obteniendo F29 folio: {folio}")
+
+        try:
+            # Importar módulo F29 localmente para evitar dependencias circulares
+            from .f29.f29_service import F29Service
+
+            # Crear servicio F29 usando las credenciales actuales
+            f29_service = F29Service(
+                tax_id=self.tax_id,
+                password=self.password,
+                headless=self.headless
+            )
+
+            # Reutilizar la sesión actual si está disponible
+            if self.driver and self.authenticated:
+                f29_service._rpa_service = self
+
+            # Obtener datos del formulario
+            resultado = f29_service.obtener_formulario_f29(folio, periodo)
+
+            logger.info(f"✅ F29 {folio} obtenido exitosamente")
+            return resultado
+
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo F29 {folio}: {str(e)}")
+            return {
+                'status': 'error',
+                'folio': folio,
+                'message': str(e),
+                'extraction_method': 'f29_integration_failed'
+            }
+
+    def buscar_formularios_f29(
+        self,
+        anio: Optional[str] = None,
+        mes: Optional[str] = None,
+        folio: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Busca formularios F29 en el SII sin necesidad de folio específico.
+        Wrapper del método F29RpaService.buscar_formularios.
+
+        Args:
+            anio: Año a consultar (obligatorio si no se busca por folio)
+            mes: Mes a consultar (opcional, solo para búsqueda por período)
+            folio: Folio específico a consultar (opcional)
+
+        Returns:
+            Dict con status, data y metadata de la búsqueda
+        """
+        try:
+            logger.info(f"🔍 Iniciando búsqueda de formularios F29 - Año: {anio}, Mes: {mes}, Folio: {folio}")
+
+            # Asegurar autenticación Y driver disponible
+            if not self.authenticate(force_auth=True):
+                raise Exception("No se pudo autenticar en el SII")
+
+            # Asegurar que el driver esté disponible (la búsqueda requiere navegación)
+            if not self.driver:
+                logger.info("🌐 Inicializando driver para búsqueda de formularios...")
+                self._start_driver()
+                # Re-autenticar para asegurar que el driver esté en contexto correcto
+                if not self.authenticate(force_auth=True):
+                    raise Exception("No se pudo re-autenticar con driver inicializado")
+
+            # Importar F29RpaService aquí para evitar circular imports
+            from .f29.f29_service import F29RpaService
+
+            # Buscar formularios usando el servicio F29
+            formularios = F29RpaService.buscar_formularios(
+                rpa_service=self,
+                codigo_formulario="29",
+                anio=anio,
+                mes=mes,
+                folio=folio
+            )
+
+            logger.info(f"✅ Búsqueda F29 completada: {len(formularios)} formularios encontrados")
+
+            return {
+                'status': 'success',
+                'data': {
+                    'formularios': formularios,
+                    'total': len(formularios),
+                    'parametros': {
+                        'anio': anio,
+                        'mes': mes,
+                        'folio': folio
+                    }
+                },
+                'message': f'{len(formularios)} formularios F29 encontrados'
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error buscando formularios F29: {str(e)}")
+            return {
+                'status': 'error',
+                'data': {'formularios': [], 'total': 0},
+                'message': str(e),
+                'error_type': 'f29_search_failed'
+            }
 
     def close(self):
         """Cierra el servicio y libera recursos"""

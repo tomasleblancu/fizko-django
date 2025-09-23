@@ -1,0 +1,174 @@
+{
+  "status": "success",
+  "folio": "8420514146",
+  "periodo": "2025-07",
+  "subtablas": [],
+  "campos_extraidos": [
+    {
+      "code": "732",
+      "value": "96",
+      "name": "Ventas con retención sobre el margen de comercialización (contribuyentes retenidos)",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "715",
+      "value": "329.337",
+      "name": "Ventas y/o Serivicios prestados Exentos o No Gravados que no son del giro",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "587",
+      "value": "5",
+      "name": "Facturas de Compra recibidas con retención total (contribuyentes retenidos) y Factura de Inicio emitida",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "720",
+      "value": "1.023.785",
+      "name": "Facturas de compra recibidas con retención parcial (Total neto)",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "502",
+      "value": "1.353.122",
+      "name": "Facturas emitidas por ventas y servicios del giro",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "764",
+      "value": "634.304",
+      "name": "Facturas emitidas por la venta de bienes inmuebles afectas a IVA",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "111",
+      "value": "1",
+      "name": "Boletas",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "759",
+      "value": "56.989",
+      "name": "Comprobantes o recibos de pago generados en transacciones pagadas a través de medios electrónicos",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "513",
+      "value": "5",
+      "name": "Notas de débito emitidas del giro y notas de débito recibidas de terceros por retención parcial de cambio de sujeto",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "510",
+      "value": "651.248",
+      "name": "Notas de crédito emitidas por facturas asociadas al giro y notas de crédito recibidas de terceros por retención parcial de cambio de sujeto",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "709",
+      "value": "3",
+      "name": "Notas de crédito emitidas por Vales de máquinas autorizadas por el servicio",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "734",
+      "value": "17.039",
+      "name": "Notas de crédito emitidas por ventas y servicios que no son del giro (activo fijo y otros)",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "517",
+      "value": "1",
+      "name": "Facturas de compra recibidas con retención parcial (contribuyentes retenidos)",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "501",
+      "value": "95",
+      "name": "Liquidación y Liquidación Factura",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "713",
+      "value": "1.181.415",
+      "name": "Reintegro del impuesto de timbres y estampillas, Art 3° Ley 20.259 e IVA determinado en el Arrendamiento Esporádico de BBRR amoblados",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "741",
+      "value": "0",
+      "name": "Adiciones al débito por IEPD. Ley 20.765",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "791",
+      "value": "1.815.719",
+      "name": "Restitución adicional por proporción de operaciones exentas y/o no gravadas por concepto Reembolso Remanente CF IVA (Ley 21.256)",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "538",
+      "value": "462.597",
+      "name": "Total Debitos",
+      "subject": "Debito Fiscal"
+    },
+    {
+      "code": "521",
+      "value": "0",
+      "name": "Internas afectas",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "560",
+      "value": "16.959",
+      "name": "Importaciones",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "562",
+      "value": "7.121.695",
+      "name": "Internas exentas, o no gravadas",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "520",
+      "value": "0,25",
+      "name": "Facturas recibidas del giro y Facturas de compra emitidas",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "762",
+      "value": "17.804",
+      "name": "Facturas recibidas de supermercados y comercios similares",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "766",
+      "value": "34.763",
+      "name": "Facturas por adquisición o construcción de bienes inmuebles",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "525",
+      "value": "34.763",
+      "name": "Facturas activo fijo",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "528",
+      "value": "34.763",
+      "name": "Notas de crédito recibidas y emitidas por retención",
+      "subject": "Credito Fiscal"
+    },
+    {
+      "code": "504",
+      "value": "1.181.415",
+      "name": "Remanente crédito fiscal mes anterior",
+      "subject": "Credito Fiscal"
+    }
+  ],
+  "total_subtablas": 0,
+  "total_campos": 27,
+  "extraction_method": "f29_rpa",
+  "timestamp": 1758583388.582438
+}

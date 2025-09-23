@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Task, TaskCategory, TaskComment, TaskAttachment, TaskLog, TaskDependency
+from .models import (
+    Task, TaskCategory, TaskComment, TaskAttachment, TaskLog, TaskDependency,
+    Process, ProcessTemplate, ProcessTask, ProcessExecution
+)
 
 
 class TaskCategorySerializer(serializers.ModelSerializer):
@@ -144,3 +147,136 @@ class TaskSummarySerializer(serializers.ModelSerializer):
             'id', 'title', 'task_type', 'category_name', 'status', 'priority',
             'progress_percentage', 'due_date', 'is_overdue', 'created_at'
         ]
+
+
+# Serializers para Procesos
+
+class ProcessTemplateSerializer(serializers.ModelSerializer):
+    """Serializer para plantillas de procesos"""
+
+    class Meta:
+        model = ProcessTemplate
+        fields = [
+            'id', 'name', 'description', 'process_type', 'template_data',
+            'is_active', 'created_by', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at', 'created_by']
+
+
+class ProcessTaskSerializer(serializers.ModelSerializer):
+    """Serializer para tareas de procesos"""
+
+    task_title = serializers.CharField(source='task.title', read_only=True)
+    task_status = serializers.CharField(source='task.status', read_only=True)
+    task_type = serializers.CharField(source='task.task_type', read_only=True)
+
+    class Meta:
+        model = ProcessTask
+        fields = [
+            'id', 'process', 'task', 'task_title', 'task_status', 'task_type',
+            'execution_order', 'execution_conditions', 'is_optional',
+            'can_run_parallel', 'context_data', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class ProcessExecutionSerializer(serializers.ModelSerializer):
+    """Serializer para ejecuciones de procesos"""
+
+    process_name = serializers.CharField(source='process.name', read_only=True)
+    progress_percentage = serializers.ReadOnlyField()
+    duration = serializers.ReadOnlyField()
+
+    class Meta:
+        model = ProcessExecution
+        fields = [
+            'id', 'process', 'process_name', 'status', 'started_at', 'completed_at',
+            'execution_context', 'current_step', 'total_steps', 'completed_steps',
+            'failed_steps', 'last_error', 'error_count', 'progress_percentage', 'duration'
+        ]
+        read_only_fields = ['started_at', 'progress_percentage', 'duration']
+
+
+class ProcessSerializer(serializers.ModelSerializer):
+    """Serializer principal para procesos"""
+
+    company_full_rut = serializers.ReadOnlyField()
+    progress_percentage = serializers.ReadOnlyField()
+    is_overdue = serializers.ReadOnlyField()
+    current_step = serializers.SerializerMethodField()
+
+    # Tareas del proceso
+    process_tasks = ProcessTaskSerializer(many=True, read_only=True)
+
+    # Ejecuciones del proceso
+    executions = ProcessExecutionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Process
+        fields = [
+            'id', 'name', 'description', 'process_type', 'status',
+            'company_rut', 'company_dv', 'company_full_rut',
+            'created_by', 'assigned_to', 'is_template', 'parent_process',
+            'start_date', 'due_date', 'completed_at', 'config_data',
+            'progress_percentage', 'is_overdue', 'current_step',
+            'created_at', 'updated_at',
+            'process_tasks', 'executions'
+        ]
+        read_only_fields = ['created_at', 'updated_at', 'start_date', 'completed_at']
+
+    def get_current_step(self, obj):
+        """Obtiene información del paso actual"""
+        current = obj.current_step
+        if current:
+            return {
+                'task_title': current.task.title,
+                'task_status': current.task.status,
+                'execution_order': current.execution_order,
+                'is_optional': current.is_optional
+            }
+        return None
+
+
+class CreateProcessSerializer(serializers.ModelSerializer):
+    """Serializer simplificado para crear procesos"""
+
+    class Meta:
+        model = Process
+        fields = [
+            'name', 'description', 'process_type', 'company_rut', 'company_dv',
+            'assigned_to', 'due_date', 'config_data', 'is_template', 'parent_process'
+        ]
+
+    def validate(self, data):
+        """Validaciones adicionales"""
+        # Validar formato RUT básico
+        company_rut = data.get('company_rut')
+        company_dv = data.get('company_dv')
+
+        if company_rut and not company_rut.isdigit():
+            raise serializers.ValidationError("El RUT debe contener solo números")
+
+        if company_dv and len(company_dv) != 1:
+            raise serializers.ValidationError("El DV debe ser un solo carácter")
+
+        return data
+
+
+class ProcessSummarySerializer(serializers.ModelSerializer):
+    """Serializer resumido para listados de procesos"""
+
+    company_full_rut = serializers.ReadOnlyField()
+    progress_percentage = serializers.ReadOnlyField()
+    is_overdue = serializers.ReadOnlyField()
+    task_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Process
+        fields = [
+            'id', 'name', 'process_type', 'status', 'company_full_rut',
+            'progress_percentage', 'due_date', 'is_overdue', 'task_count', 'created_at'
+        ]
+
+    def get_task_count(self, obj):
+        """Cuenta de tareas en el proceso"""
+        return obj.process_tasks.count()
