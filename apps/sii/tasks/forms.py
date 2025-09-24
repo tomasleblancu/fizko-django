@@ -64,16 +64,34 @@ def sync_tax_forms_task(
     )
 
     try:
-        # Obtener credenciales SII
-        # TODO: En futuro obtener de la empresa específica
-        tax_id = getattr(settings, 'SII_TAX_ID', '77794858-K')
-        password = getattr(settings, 'SII_PASSWORD', 'SiiPfufl574@#')
+        # Obtener credenciales SII de la empresa específica
+        from apps.companies.models import Company
+        from apps.taxpayers.models import TaxpayerSiiCredentials
 
-        if not tax_id or not password:
-            raise ValueError("Credenciales SII no configuradas en settings")
+        # Buscar la empresa por RUT
+        full_company_rut = f"{company_rut}-{company_dv}"
+        try:
+            company = Company.objects.get(tax_id=full_company_rut)
+            logger.info(f"📍 [Task {task_id}] Empresa encontrada: {company.business_name}")
+        except Company.DoesNotExist:
+            raise ValueError(f"Company not found for RUT {full_company_rut}")
 
-        # Crear servicio SII
-        with RealSIIService(tax_id=tax_id, password=password, headless=True) as sii_service:
+        # Obtener credenciales SII de la empresa
+        credentials = TaxpayerSiiCredentials.objects.filter(company=company).first()
+        if not credentials:
+            raise ValueError(f"No SII credentials found for company {full_company_rut}")
+
+        # Usar credenciales de la empresa
+        sii_tax_id = credentials.tax_id
+        sii_password = credentials.get_password()
+
+        if not sii_tax_id or not sii_password:
+            raise ValueError(f"Invalid SII credentials for company {full_company_rut}")
+
+        logger.info(f"🔑 [Task {task_id}] Usando credenciales SII de la empresa: {sii_tax_id}")
+
+        # Crear servicio SII con credenciales de la empresa
+        with RealSIIService(tax_id=sii_tax_id, password=sii_password, headless=True) as sii_service:
             logger.info(f"🔍 [Task {task_id}] Extrayendo formularios desde SII...")
 
             if form_type.lower() == 'f29':
@@ -196,17 +214,35 @@ def sync_all_historical_forms_task(
     )
 
     try:
-        # Obtener credenciales SII
-        tax_id = getattr(settings, 'SII_TAX_ID', '77794858-K')
-        password = getattr(settings, 'SII_PASSWORD', 'SiiPfufl574@#')
+        # Obtener credenciales SII de la empresa específica
+        from apps.companies.models import Company
+        from apps.taxpayers.models import TaxpayerSiiCredentials
 
-        if not tax_id or not password:
-            raise ValueError("Credenciales SII no configuradas")
+        # Buscar la empresa por RUT
+        try:
+            company = Company.objects.get(tax_id=full_rut)
+            logger.info(f"📍 [Task {task_id}] Empresa encontrada: {company.business_name}")
+        except Company.DoesNotExist:
+            raise ValueError(f"Company not found for RUT {full_rut}")
+
+        # Obtener credenciales SII de la empresa
+        credentials = TaxpayerSiiCredentials.objects.filter(company=company).first()
+        if not credentials:
+            raise ValueError(f"No SII credentials found for company {full_rut}")
+
+        # Usar credenciales de la empresa
+        sii_tax_id = credentials.tax_id
+        sii_password = credentials.get_password()
+
+        if not sii_tax_id or not sii_password:
+            raise ValueError(f"Invalid SII credentials for company {full_rut}")
+
+        logger.info(f"🔑 [Task {task_id}] Usando credenciales SII de la empresa: {sii_tax_id}")
 
         # Primero, obtener información del contribuyente para determinar fecha de inicio
         logger.info(f"🔍 [Task {task_id}] Obteniendo información del contribuyente...")
 
-        with RealSIIService(tax_id=tax_id, password=password, headless=True) as sii_service:
+        with RealSIIService(tax_id=sii_tax_id, password=sii_password, headless=True) as sii_service:
             # Obtener datos del contribuyente
             contribuyente_data = sii_service.consultar_contribuyente()
 
@@ -287,15 +323,15 @@ def sync_all_historical_forms_task(
                     all_form_ids = created_form_ids + updated_form_ids
 
                     # Enviar tarea de extracción de detalles para cada formulario
-                    for form_id in all_form_ids:
-                        try:
-                            extract_form_details_task.delay(
-                                form_id=form_id,
-                                force_refresh=False
-                            )
-                            extraction_tasks_sent += 1
-                        except Exception as e:
-                            logger.error(f"❌ [Task {task_id}] Error enviando tarea de extracción para form_id {form_id}: {str(e)}")
+                    # for form_id in all_form_ids:
+                    #     try:
+                    #         extract_form_details_task.delay(
+                    #             form_id=form_id,
+                    #             force_refresh=False
+                    #         )
+                    #         extraction_tasks_sent += 1
+                    #     except Exception as e:
+                    #         logger.error(f"❌ [Task {task_id}] Error enviando tarea de extracción para form_id {form_id}: {str(e)}")
 
                     total_extraction_tasks += extraction_tasks_sent
                     logger.info(f"🔍 [Task {task_id}] {extraction_tasks_sent} tareas de extracción de detalles enviadas para año {anio}")

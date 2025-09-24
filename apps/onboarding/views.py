@@ -143,14 +143,14 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 taxpayer_sii_credentials__user__email=user_email
             ).first()
             
-            if existing_user_company:
-                return Response({
-                    'status': 'success',
-                    'message': 'Usuario ya tiene acceso a esta empresa',
-                    'company_id': existing_user_company.id,
-                    'company_name': existing_user_company.business_name,
-                    'verification_status': 'credentials_verified'
-                })
+            # if existing_user_company:
+            #     return Response({
+            #         'status': 'success',
+            #         'message': 'Usuario ya tiene acceso a esta empresa',
+            #         'company_id': existing_user_company.id,
+            #         'company_name': existing_user_company.business_name,
+            #         'verification_status': 'credentials_verified'
+            #     })
             
             # Verificar si ya se creó la empresa durante el paso de credenciales
             company_creation_result = company_step_data.step_data.get('company_creation_result')
@@ -182,9 +182,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             elif existing_user_company:
                 company_id = existing_user_company.id
 
-            # Ejecutar las tareas de sincronización solo al finalizar el onboarding
+            # Ejecutar las tareas de sincronización y creación de procesos al finalizar el onboarding
             initial_sync_result = None
             historical_sync_result = None
+            process_creation_result = None
 
             if company_id:
                 # 1. Sincronización inicial rápida (últimos 2 meses)
@@ -193,13 +194,17 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 # 2. Sincronización histórica completa (todo el historial)
                 historical_sync_result = self._start_complete_historical_sync(company_id)
 
+                # 3. Crear procesos tributarios según configuración del TaxPayer
+                process_creation_result = self._create_taxpayer_processes(company_id)
+
             return Response({
                 'status': 'success',
                 'message': message,
                 'company_result': company_result,
                 'sync_results': {
                     'initial_sync': initial_sync_result,
-                    'historical_sync': historical_sync_result
+                    'historical_sync': historical_sync_result,
+                    'process_creation': process_creation_result
                 },
                 'finalized_at': timezone.now(),
                 'next_steps': 'Su historial contable completo se está procesando en segundo plano. Puede comenzar a usar la plataforma con los datos recientes ya disponibles.'
@@ -274,6 +279,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                         'verified_at': timezone.now().isoformat()
                     }
                     step_data['company_creation_result'] = company_result
+
                     
             if step_data:
                 user_onboarding.step_data.update(step_data)
@@ -313,17 +319,24 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
         return Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2
 
+
     def _setup_user_role_for_company(self, user, company, role_name='owner'):
         """
         Maneja toda la lógica de asignación de roles para un usuario en una empresa
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         Company, TaxPayer, TaxpayerSiiCredentials, Role, UserRole, SIIServiceV2 = self._get_company_models()
 
         # Asegurar que los roles por defecto existen
         self._ensure_default_roles_exist()
 
         try:
+            logger.info(f"🔍 Buscando rol '{role_name}' para usuario {user.email}")
             role = Role.objects.get(name=role_name)
+            logger.info(f"✅ Rol '{role_name}' encontrado (ID: {role.id})")
+
             user_role, created = UserRole.objects.get_or_create(
                 user=user,
                 company=company,
@@ -331,15 +344,53 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 defaults={'active': True}
             )
 
+            # Verificar que el rol se guardó correctamente
+            if not user_role.active:
+                user_role.active = True
+                user_role.save()
+                logger.warning(f"⚠️ Rol estaba inactivo, activado para {user.email}")
+
+            action = "creado" if created else "ya existía"
+            logger.info(f"✅ UserRole {action} - Usuario: {user.email}, Empresa: {company.business_name} (ID: {company.id}), Rol: {role_name}")
+
+            # Verificación adicional
+            verification = UserRole.objects.filter(
+                user=user,
+                company=company,
+                role=role,
+                active=True
+            ).exists()
+
+            if not verification:
+                logger.error(f"❌ VERIFICACIÓN FALLÓ - UserRole no se encontró activo después de la creación")
+                return {
+                    'error': 'ROLE_VERIFICATION_FAILED',
+                    'message': f'No se pudo verificar que el rol {role_name} se asignó correctamente'
+                }
+
+            logger.info(f"✅ Verificación exitosa - UserRole activo confirmado")
+
             return {
                 'success': True,
                 'role': role_name,
-                'created': created
+                'created': created,
+                'user_role_id': user_role.id,
+                'verification_passed': True
             }
         except Role.DoesNotExist:
+            logger.error(f"❌ Rol '{role_name}' no existe en la base de datos")
+            available_roles = list(Role.objects.values_list('name', flat=True))
+            logger.error(f"📋 Roles disponibles: {available_roles}")
             return {
                 'error': 'ROLE_NOT_FOUND',
-                'message': f'Rol {role_name} no existe'
+                'message': f'Rol {role_name} no existe',
+                'available_roles': available_roles
+            }
+        except Exception as e:
+            logger.error(f"❌ Error inesperado asignando rol: {str(e)}")
+            return {
+                'error': 'ROLE_ASSIGNMENT_ERROR',
+                'message': f'Error inesperado: {str(e)}'
             }
 
     def _verify_sii_credentials(self, step_data):
@@ -453,6 +504,18 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     if role_result.get('error'):
                         return role_result
 
+                    # CONFIGURAR PROCESOS POR DEFECTO si no están configurados
+                    taxpayer = getattr(existing_company, 'taxpayer', None)
+                    if taxpayer:
+                        current_settings = taxpayer.get_process_settings()
+                        # Si no hay configuración previa, establecer valores por defecto
+                        if not taxpayer.setting_procesos:
+                            taxpayer.update_process_settings({
+                                'f29_monthly': True,
+                                'f22_annual': True,
+                                'f3323_quarterly': False
+                            })
+
                     return {
                         'status': 'success',
                         'message': 'Usuario asignado a empresa existente',
@@ -463,7 +526,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                             'existing_company': True,
                             'user_assigned': True,
                             'user_role': role_name
-                        }
+                        },
+                        'role_assignment_details': role_result
                     }
             
             # Empresa no existe - crear nueva empresa completa
@@ -604,9 +668,17 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 dv=dv.upper(),
                 tax_id=tax_id
             )
-            
+
             # Sincronizar con los datos del SII - pasar todos los datos, no solo contribuyente
             taxpayer.sync_from_sii_data(datos_sii)
+
+            # CONFIGURAR PROCESOS POR DEFECTO: Por ahora todas las empresas necesitan F29 y F22
+            taxpayer.update_process_settings({
+                'f29_monthly': True,
+                'f22_annual': True,
+                'f3323_quarterly': False  # Solo para empresas Pro-Pyme (se puede configurar después)
+            })
+
             taxpayer.save()
             
             # Sincronizar modelos relacionados que necesitan la company
@@ -646,7 +718,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                     'credentials_stored': True,
                     'user_role': 'owner'
                 },
-                'user_role_created': True
+                'user_role_created': True,
+                'role_assignment_details': role_result
             }
                 
         except Exception as e:
@@ -810,6 +883,75 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 'error': 'HISTORICAL_SYNC_ERROR',
                 'message': f'Error iniciando sincronización histórica completa: {str(e)}',
                 'sync_status': 'failed',
+                'traceback': traceback.format_exc()
+            }
+
+    def _create_taxpayer_processes(self, company_id):
+        """
+        Crea los procesos tributarios según la configuración del TaxPayer
+        Se ejecuta al FINALIZAR el onboarding para preparar los procesos tributarios
+        """
+        try:
+            from apps.companies.models import Company
+
+            # Verificar que la empresa tenga TaxPayer
+            company = Company.objects.get(id=company_id)
+
+            # Verificar que exista el TaxPayer
+            if not hasattr(company, 'taxpayer'):
+                return {
+                    'status': 'skipped',
+                    'message': 'Empresa sin TaxPayer configurado',
+                    'company_id': company_id
+                }
+
+            # Importar la tarea de Celery para crear procesos
+            from apps.tasks.tasks.process_management import create_processes_from_taxpayer_settings
+
+            # Enviar tarea a Celery para procesamiento asíncrono
+            task_result = create_processes_from_taxpayer_settings.delay(company_id=company_id)
+
+            # Obtener configuración actual del TaxPayer para informar
+            taxpayer = company.taxpayer
+            process_settings = taxpayer.get_process_settings()
+
+            enabled_processes = []
+            if process_settings.get('f29_monthly', False):
+                enabled_processes.append('F29 Mensual')
+            if process_settings.get('f22_annual', False):
+                enabled_processes.append('F22 Anual')
+            if process_settings.get('f3323_quarterly', False):
+                enabled_processes.append('F3323 Trimestral')
+
+            return {
+                'status': 'success',
+                'message': 'Creación de procesos tributarios iniciada',
+                'task_id': task_result.id,
+                'company_id': company_id,
+                'taxpayer_rut': company.tax_id,
+                'process_settings': process_settings,
+                'enabled_processes': enabled_processes,
+                'description': f'Creando procesos para: {", ".join(enabled_processes) if enabled_processes else "Ninguno habilitado"}'
+            }
+
+        except Company.DoesNotExist:
+            return {
+                'error': 'COMPANY_NOT_FOUND',
+                'message': f'No se encontró empresa con ID {company_id}',
+                'process_creation_status': 'failed'
+            }
+        except ImportError as e:
+            return {
+                'error': 'CELERY_IMPORT_ERROR',
+                'message': f'Error importando tarea de creación de procesos: {str(e)}',
+                'process_creation_status': 'failed'
+            }
+        except Exception as e:
+            import traceback
+            return {
+                'error': 'PROCESS_CREATION_ERROR',
+                'message': f'Error iniciando creación de procesos: {str(e)}',
+                'process_creation_status': 'failed',
                 'traceback': traceback.format_exc()
             }
 

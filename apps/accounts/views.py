@@ -2,7 +2,7 @@
 Views for the accounts app - User management and authentication
 """
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -129,8 +129,49 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'message': 'Logout exitoso'})
         except Exception as e:
             return Response(
-                {'error': 'Token inválido'}, 
+                {'error': 'Token inválido'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def companies(self, request, pk=None):
+        """Get companies where the user has an active role"""
+        try:
+            user = self.get_object()
+
+            # Solo permitir que el usuario vea sus propias empresas o ser admin
+            if request.user != user and not request.user.is_staff:
+                return Response(
+                    {'error': 'No tienes permisos para ver las empresas de este usuario'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Obtener empresas donde el usuario tiene roles activos
+            user_roles = UserRole.objects.filter(
+                user=user,
+                active=True
+            ).select_related('company', 'role')
+
+            companies_data = []
+            for user_role in user_roles:
+                company = user_role.company
+                companies_data.append({
+                    'id': company.id,
+                    'name': company.display_name,
+                    'display_name': company.display_name,
+                    'business_name': company.business_name,
+                    'tax_id': company.tax_id,
+                    'email': company.email,
+                    'role': user_role.role.name,
+                    'is_active': user_role.active
+                })
+
+            return Response(companies_data)
+
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Usuario no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
             )
 
 
@@ -214,3 +255,44 @@ class UserRoleViewSet(viewsets.ModelViewSet):
         user_roles = UserRole.objects.filter(company_id=company_id, active=True)
         serializer = UserRoleSerializer(user_roles, many=True)
         return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def debug_user_permissions(request):
+    """
+    Endpoint de debug para verificar permisos y empresas del usuario
+    """
+    user = request.user
+
+    # Obtener todas las empresas donde el usuario tiene roles
+    user_roles = UserRole.objects.filter(user=user).select_related('company', 'role')
+
+    companies_data = []
+    for user_role in user_roles:
+        company = user_role.company
+        companies_data.append({
+            'company_id': company.id,
+            'tax_id': company.tax_id,
+            'business_name': company.business_name,
+            'display_name': company.display_name,
+            'role': user_role.role.name,
+            'active': user_role.active,
+            'created_at': user_role.created_at.isoformat() if user_role.created_at else None
+        })
+
+    # Información general del usuario
+    debug_info = {
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'is_authenticated': user.is_authenticated,
+            'is_verified': getattr(user, 'is_verified', False),
+        },
+        'companies': companies_data,
+        'total_companies': len(companies_data),
+        'active_companies': len([c for c in companies_data if c['active']]),
+        'available_company_ids': [c['company_id'] for c in companies_data if c['active']]
+    }
+
+    return Response(debug_info)

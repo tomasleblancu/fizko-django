@@ -3,6 +3,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from datetime import datetime
 from django.utils import timezone
 import logging
@@ -107,7 +108,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
     def metrics(self, request, pk=None):
         """Obtener métricas básicas de la empresa"""
         company = self.get_object()
-        
+
         # Por ahora devolvemos datos mock hasta implementar documentos
         return Response({
             'total_documents': 0,
@@ -115,6 +116,162 @@ class CompanyViewSet(viewsets.ModelViewSet):
             'total_purchases': 0,
             'pending_documents': 0,
             'last_update': timezone.now().isoformat()
+        })
+
+    @action(detail=True, methods=['get'])
+    def process_settings(self, request, pk=None):
+        """Obtener configuración de procesos tributarios de la empresa"""
+        company = self.get_object()
+
+        if not hasattr(company, 'taxpayer'):
+            return Response({
+                'error': 'NO_TAXPAYER',
+                'message': 'Esta empresa no tiene TaxPayer configurado'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        taxpayer = company.taxpayer
+        settings = taxpayer.get_process_settings()
+
+        # Obtener procesos activos
+        from apps.tasks.models import Process
+        active_processes = Process.objects.filter(
+            company_rut=taxpayer.rut,
+            status__in=['active', 'in_progress', 'scheduled']
+        ).values('process_type', 'name', 'status', 'due_date')
+
+        return Response({
+            'company_id': company.id,
+            'company_name': company.display_name,
+            'taxpayer_rut': taxpayer.tax_id,
+            'settings': settings,
+            'active_processes': list(active_processes),
+            'available_processes': {
+                'f29_monthly': 'F29 - Declaración Mensual IVA',
+                'f22_annual': 'F22 - Declaración Anual Renta',
+                'f3323_quarterly': 'F3323 - Declaración Trimestral ProPyme'
+            }
+        })
+
+    @action(detail=True, methods=['post'])
+    def update_process_settings(self, request, pk=None):
+        """Actualizar configuración de procesos y crear/eliminar procesos según corresponda"""
+        company = self.get_object()
+
+        if not hasattr(company, 'taxpayer'):
+            return Response({
+                'error': 'NO_TAXPAYER',
+                'message': 'Esta empresa no tiene TaxPayer configurado'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        taxpayer = company.taxpayer
+        new_settings = request.data.get('settings', {})
+
+        if not isinstance(new_settings, dict):
+            return Response({
+                'error': 'INVALID_SETTINGS',
+                'message': 'settings debe ser un objeto con los procesos a habilitar/deshabilitar'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Obtener configuración actual y comparar
+        current_settings = taxpayer.get_process_settings()
+        changes = {
+            'enabled': [],
+            'disabled': [],
+            'unchanged': []
+        }
+
+        # Identificar cambios
+        for process_type in ['f29_monthly', 'f22_annual', 'f3323_quarterly']:
+            if process_type in new_settings:
+                new_value = bool(new_settings[process_type])
+                current_value = current_settings.get(process_type, False)
+
+                if new_value and not current_value:
+                    changes['enabled'].append(process_type)
+                elif not new_value and current_value:
+                    changes['disabled'].append(process_type)
+                else:
+                    changes['unchanged'].append(process_type)
+
+        # Actualizar configuración
+        taxpayer.update_process_settings(new_settings)
+
+        # Procesar cambios
+        results = {
+            'enabled_processes': [],
+            'disabled_processes': [],
+            'errors': []
+        }
+
+        with transaction.atomic():
+            # Habilitar nuevos procesos
+            if changes['enabled']:
+                from apps.tasks.tasks.process_management import create_processes_from_taxpayer_settings
+
+                try:
+                    # Ejecutar creación de procesos síncronamente
+                    creation_result = create_processes_from_taxpayer_settings(company_id=company.id)
+
+                    if creation_result.get('processes_created'):
+                        for process in creation_result['processes_created']:
+                            results['enabled_processes'].append({
+                                'type': process['type'],
+                                'name': process['name'],
+                                'id': process['process_id']
+                            })
+
+                    if creation_result.get('errors'):
+                        results['errors'].extend(creation_result['errors'])
+
+                except Exception as e:
+                    logger.error(f"Error creando procesos para empresa {company.id}: {str(e)}")
+                    results['errors'].append(f"Error creando procesos: {str(e)}")
+
+            # Deshabilitar procesos existentes
+            if changes['disabled']:
+                from apps.tasks.models import Process, ProcessTask
+
+                for process_type in changes['disabled']:
+                    # Mapear tipo de configuración a tipo de proceso
+                    process_type_map = {
+                        'f29_monthly': 'f29',
+                        'f22_annual': 'f22',
+                        'f3323_quarterly': 'f3323'
+                    }
+
+                    actual_process_type = process_type_map.get(process_type, process_type.split('_')[0])
+
+                    # Cancelar procesos activos de este tipo
+                    processes_to_cancel = Process.objects.filter(
+                        company_rut=taxpayer.rut,
+                        process_type=actual_process_type,
+                        status__in=['active', 'scheduled', 'draft']
+                    )
+
+                    for process in processes_to_cancel:
+                        # Cancelar todas las tareas del proceso
+                        ProcessTask.objects.filter(process=process).update(
+                            status='cancelled'
+                        )
+
+                        # Cancelar el proceso
+                        process.status = 'cancelled'
+                        process.save()
+
+                        results['disabled_processes'].append({
+                            'type': process.process_type,
+                            'name': process.name,
+                            'id': process.id
+                        })
+
+                    logger.info(f"Cancelados {processes_to_cancel.count()} procesos {actual_process_type} para {taxpayer.tax_id}")
+
+        return Response({
+            'status': 'success',
+            'company_id': company.id,
+            'changes': changes,
+            'results': results,
+            'new_settings': taxpayer.get_process_settings()
         })
 
 

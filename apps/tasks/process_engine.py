@@ -416,71 +416,111 @@ class ProcessTemplateFactory:
 
     @staticmethod
     def create_monthly_f29_process(company_rut: str, company_dv: str,
-                                  period: str, assigned_to: str) -> Process:
+                                  period: str, assigned_to: str, is_recurring: bool = True) -> Process:
         """
-        Crea un proceso para declaración F29 mensual
+        Crea un proceso para declaración F29 mensual con recurrencia automática
         """
-        process_name = f"F29 {period} - {company_rut}-{company_dv}"
+        # Parsear período (formato: "YYYY-MM")
+        year, month = period.split('-')
+        year = int(year)
+        month = int(month)
+
+        process_name = f"F29 {month:02d}-{year} - {company_rut}-{company_dv}"
+
+        # Calcular fecha de vencimiento (F29 vence el día 12 del mes siguiente)
+        from datetime import datetime
+        from django.utils import timezone
+
+        due_month = month + 1
+        due_year = year
+        if due_month > 12:
+            due_month = 1
+            due_year += 1
+
+        due_date = timezone.make_aware(datetime(due_year, due_month, 12, 23, 59, 59))
+
+        # Buscar la empresa por RUT
+        from apps.companies.models import Company
+        company_tax_id = f"{company_rut}-{company_dv}"
+        try:
+            company = Company.objects.get(tax_id=company_tax_id)
+        except Company.DoesNotExist:
+            raise ValueError(f"No se encontró empresa con tax_id: {company_tax_id}")
 
         process = Process.objects.create(
             name=process_name,
-            description=f"Declaración F29 para el período {period}",
+            description=f"Declaración F29 para el período {month:02d}/{year}",
             process_type='tax_monthly',
+            company=company,  # Nueva relación ForeignKey
             company_rut=company_rut,
             company_dv=company_dv,
             assigned_to=assigned_to,
             created_by=assigned_to,
+            due_date=due_date,
+            is_recurring=is_recurring,
+            recurrence_type='monthly' if is_recurring else None,
+            recurrence_config={
+                'period_month': month,
+                'period_year': year,
+                'form_type': 'f29',
+                'auto_submit': False
+            } if is_recurring else {},
             config_data={
                 'period': period,
+                'period_month': month,
+                'period_year': year,
                 'form_type': 'f29',
                 'auto_submit': False
             }
         )
 
-        # Crear tareas del proceso
+        # Crear tareas del proceso con fechas límite específicas
         tasks_config = [
             {
-                'title': f'Sincronizar DTEs del SII - {period}',
+                'title': f'Generar F29 - {period}',
+                'description': 'Generación automática del formulario F29 con datos del período',
                 'task_type': 'automatic',
                 'order': 1,
                 'optional': False,
-                'parallel': False
+                'parallel': False,
+                'due_date_offset_days': 1,  # 1 día después del inicio del proceso
             },
             {
-                'title': f'Validar documentos recibidos - {period}',
-                'task_type': 'manual',
+                'title': f'Guardar F29 - {period}',
+                'description': 'Guardado automático del formulario F29 generado',
+                'task_type': 'automatic',
                 'order': 2,
                 'optional': False,
-                'parallel': False
+                'parallel': False,
+                'due_date_from_previous': 1,  # 1 día después de la tarea anterior
             },
             {
-                'title': f'Calcular montos IVA - {period}',
-                'task_type': 'automatic',
+                'title': f'Aprobar previsualización F29 - {period}',
+                'description': 'Revisión y aprobación manual de la declaración antes del envío',
+                'task_type': 'manual',
                 'order': 3,
                 'optional': False,
-                'parallel': False
-            },
-            {
-                'title': f'Generar borrador F29 - {period}',
-                'task_type': 'automatic',
-                'order': 4,
-                'optional': False,
-                'parallel': False
-            },
-            {
-                'title': f'Revisión final F29 - {period}',
-                'task_type': 'manual',
-                'order': 5,
-                'optional': False,
-                'parallel': False
+                'parallel': False,
+                'due_date_offset_days': -3,  # 3 días antes del vencimiento
             },
             {
                 'title': f'Enviar F29 al SII - {period}',
+                'description': 'Envío automático de la declaración al Servicio de Impuestos Internos',
                 'task_type': 'automatic',
-                'order': 6,
+                'order': 4,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -1,  # 1 día antes del vencimiento
+                'conditions': {'previous_task_status': 'completed'}
+            },
+            {
+                'title': f'Pagar F29 - {period}',
+                'description': 'Gestión manual del pago de impuestos correspondientes',
+                'task_type': 'manual',
+                'order': 5,
                 'optional': True,
                 'parallel': False,
-                'conditions': {'previous_task_status': 'completed'}
+                'due_date_offset_days': 0,  # Mismo día del vencimiento
             }
         ]
 
@@ -488,6 +528,7 @@ class ProcessTemplateFactory:
             # Crear tarea
             task = Task.objects.create(
                 title=task_config['title'],
+                description=task_config.get('description', ''),
                 task_type=task_config['task_type'],
                 company_rut=company_rut,
                 company_dv=company_dv,
@@ -495,18 +536,47 @@ class ProcessTemplateFactory:
                 created_by=assigned_to,
                 task_data={
                     'period': period,
+                    'period_month': month,
+                    'period_year': year,
                     'form_type': 'f29'
                 }
             )
 
-            # Asociar tarea al proceso
+            # Calcular fecha límite para esta tarea
+            task_due_date = None
+            if task_config.get('due_date_offset_days') is not None:
+                from datetime import timedelta
+                offset_days = task_config['due_date_offset_days']
+
+                if offset_days > 0:
+                    # Offset positivo: calcular desde ahora (inicio del proceso)
+                    task_due_date = timezone.now() + timedelta(days=offset_days)
+                else:
+                    # Offset negativo: calcular desde la fecha de vencimiento del proceso
+                    task_due_date = due_date + timedelta(days=offset_days)
+            elif task_config.get('due_date_from_previous') and task_config['order'] > 1:
+                # Para tareas que dependen de la anterior, usar fecha del proceso por ahora
+                # En un futuro se puede implementar cálculo dinámico
+                task_due_date = due_date
+            else:
+                # Por defecto, usar la fecha de vencimiento del proceso
+                task_due_date = due_date
+
+            # Asignar fecha límite a la tarea
+            if task_due_date:
+                task.due_date = task_due_date
+                task.save()
+
+            # Asociar tarea al proceso con fechas límite
             ProcessTask.objects.create(
                 process=process,
                 task=task,
                 execution_order=task_config['order'],
                 is_optional=task_config['optional'],
                 can_run_parallel=task_config['parallel'],
-                execution_conditions=task_config.get('conditions', {})
+                execution_conditions=task_config.get('conditions', {}),
+                due_date_offset_days=task_config.get('due_date_offset_days'),
+                due_date_from_previous=task_config.get('due_date_from_previous')
             )
 
         return process
@@ -515,24 +585,150 @@ class ProcessTemplateFactory:
     def create_annual_declaration_process(company_rut: str, company_dv: str,
                                         year: str, assigned_to: str) -> Process:
         """
-        Crea un proceso para declaración anual
+        Crea un proceso para declaración anual F22 con todas sus tareas
         """
-        process_name = f"Declaración Anual {year} - {company_rut}-{company_dv}"
+        process_name = f"F22 {year} - {company_rut}-{company_dv}"
+
+        # Calcular fecha de vencimiento del F22 (30 de abril del año siguiente)
+        from datetime import datetime
+        from django.utils import timezone
+
+        due_date = timezone.make_aware(datetime(int(year) + 1, 4, 30, 23, 59, 59))
+
+        # Buscar la empresa por RUT
+        from apps.companies.models import Company
+        company_tax_id = f"{company_rut}-{company_dv}"
+        try:
+            company = Company.objects.get(tax_id=company_tax_id)
+        except Company.DoesNotExist:
+            raise ValueError(f"No se encontró empresa con tax_id: {company_tax_id}")
 
         process = Process.objects.create(
             name=process_name,
-            description=f"Declaración de renta anual para el año {year}",
+            description=f"Declaración anual de renta F22 para el año {year}",
             process_type='tax_annual',
+            company=company,  # Nueva relación ForeignKey
             company_rut=company_rut,
             company_dv=company_dv,
             assigned_to=assigned_to,
             created_by=assigned_to,
+            due_date=due_date,
             config_data={
                 'year': year,
+                'form_type': 'f22',
                 'requires_external_accountant': True,
-                'estimated_duration_days': 30
+                'estimated_duration_days': 90
             }
         )
 
-        # Las tareas específicas se agregarían según los requerimientos
+        # Crear tareas del proceso F22 con fechas límite específicas
+        tasks_config = [
+            {
+                'title': f'DDJJ 1879: Registro Anual de Boletas de Honorarios - {year}',
+                'description': 'Registro Anual de Boletas de Honorarios Electrónicas o Retenciones de honorarios',
+                'task_type': 'automatic',
+                'order': 1,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -60,  # 60 días antes del vencimiento
+            },
+            {
+                'title': f'DDJJ 1887: Sueldos y Retenciones IUSC - {year}',
+                'description': 'Sueldos, otros componentes de la remuneración y retenciones IUSC',
+                'task_type': 'automatic',
+                'order': 2,
+                'optional': False,
+                'parallel': True,  # Puede ejecutarse en paralelo con la anterior
+                'due_date_offset_days': -60,  # 60 días antes del vencimiento
+            },
+            {
+                'title': f'Aprobación simple de DDJJs - {year}',
+                'description': 'Revisión y aprobación de las declaraciones juradas presentadas',
+                'task_type': 'manual',
+                'order': 3,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -45,  # 45 días antes del vencimiento
+                'conditions': {'previous_task_status': 'completed'}
+            },
+            {
+                'title': f'Completación F22 - {year}',
+                'description': 'Generación automática del formulario F22 con todos los datos recopilados',
+                'task_type': 'automatic',
+                'order': 4,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -30,  # 30 días antes del vencimiento
+                'conditions': {'previous_task_status': 'completed'}
+            },
+            {
+                'title': f'Previsualización simple F22 y aprobación - {year}',
+                'description': 'Revisión y aprobación manual de la declaración F22 antes del envío',
+                'task_type': 'manual',
+                'order': 5,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -7,  # 7 días antes del vencimiento
+                'conditions': {'previous_task_status': 'completed'}
+            },
+            {
+                'title': f'Envío F22 al SII - {year}',
+                'description': 'Envío automático de la declaración F22 al Servicio de Impuestos Internos',
+                'task_type': 'automatic',
+                'order': 6,
+                'optional': False,
+                'parallel': False,
+                'due_date_offset_days': -1,  # 1 día antes del vencimiento
+                'conditions': {'previous_task_status': 'completed'}
+            }
+        ]
+
+        for task_config in tasks_config:
+            # Crear tarea
+            task = Task.objects.create(
+                title=task_config['title'],
+                description=task_config.get('description', ''),
+                task_type=task_config['task_type'],
+                company_rut=company_rut,
+                company_dv=company_dv,
+                assigned_to=assigned_to,
+                created_by=assigned_to,
+                task_data={
+                    'year': year,
+                    'form_type': 'f22'
+                }
+            )
+
+            # Calcular fecha límite para esta tarea
+            task_due_date = None
+            if task_config.get('due_date_offset_days') is not None:
+                from datetime import timedelta
+                offset_days = task_config['due_date_offset_days']
+
+                if offset_days > 0:
+                    # Offset positivo: calcular desde ahora (inicio del proceso)
+                    task_due_date = timezone.now() + timedelta(days=offset_days)
+                else:
+                    # Offset negativo: calcular desde la fecha de vencimiento del proceso
+                    task_due_date = due_date + timedelta(days=offset_days)
+            else:
+                # Por defecto, usar la fecha de vencimiento del proceso
+                task_due_date = due_date
+
+            # Asignar fecha límite a la tarea
+            if task_due_date:
+                task.due_date = task_due_date
+                task.save()
+
+            # Asociar tarea al proceso con fechas límite
+            ProcessTask.objects.create(
+                process=process,
+                task=task,
+                execution_order=task_config['order'],
+                is_optional=task_config['optional'],
+                can_run_parallel=task_config['parallel'],
+                execution_conditions=task_config.get('conditions', {}),
+                due_date_offset_days=task_config.get('due_date_offset_days'),
+            )
+
         return process

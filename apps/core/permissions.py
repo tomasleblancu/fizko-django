@@ -126,7 +126,7 @@ class IsCompanyOwner(IsCompanyMember):
         return UserRole.objects.filter(
             user=request.user,
             company_id=company_id,
-            role__name='OWNER',
+            role__name='owner',
             active=True
         ).exists()
 
@@ -144,7 +144,7 @@ class IsCompanyOwner(IsCompanyMember):
             return UserRole.objects.filter(
                 user=request.user,
                 company_id=company_id,
-                role__name='OWNER',
+                role__name='owner',
                 active=True
             ).exists()
         
@@ -169,7 +169,7 @@ class IsCompanyAdmin(IsCompanyMember):
         return UserRole.objects.filter(
             user=request.user,
             company_id=company_id,
-            role__name__in=['OWNER', 'ADMIN'],
+            role__name__in=['owner', 'admin'],
             active=True
         ).exists()
 
@@ -187,7 +187,7 @@ class IsCompanyAdmin(IsCompanyMember):
             return UserRole.objects.filter(
                 user=request.user,
                 company_id=company_id,
-                role__name__in=['OWNER', 'ADMIN'],
+                role__name__in=['owner', 'admin'],
                 active=True
             ).exists()
         

@@ -247,11 +247,19 @@ class Process(TimeStampedModel):
     process_type = models.CharField(max_length=50, choices=PROCESS_TYPES)
 
     # Asociación a empresa
+    company = models.ForeignKey(
+        'companies.Company',
+        on_delete=models.CASCADE,
+        related_name='processes',
+        help_text="Empresa a la que pertenece este proceso",
+        null=True,  # Temporal para migración
+        blank=True
+    )
     company_rut = models.CharField(max_length=12)
     company_dv = models.CharField(max_length=1)
 
     # Estado del proceso
-    status = models.CharField(max_length=20, choices=PROCESS_STATUS, default='draft')
+    status = models.CharField(max_length=20, choices=PROCESS_STATUS, default='active')
 
     # Configuración
     is_template = models.BooleanField(default=False)
@@ -268,6 +276,38 @@ class Process(TimeStampedModel):
 
     # Configuración del proceso
     config_data = models.JSONField(default=dict, help_text="Configuración específica del proceso")
+
+    # Recurrencia
+    is_recurring = models.BooleanField(default=False, help_text="Si este proceso se repite automáticamente")
+    recurrence_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('monthly', 'Mensual'),
+            ('quarterly', 'Trimestral'),
+            ('annual', 'Anual'),
+            ('custom', 'Personalizado'),
+        ],
+        blank=True,
+        null=True,
+        help_text="Tipo de recurrencia"
+    )
+    recurrence_config = models.JSONField(
+        default=dict,
+        help_text="Configuración de recurrencia: intervalos, fechas base, etc."
+    )
+    next_occurrence_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha en que se debe generar el siguiente proceso"
+    )
+    recurrence_source = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='recurring_instances',
+        help_text="Proceso padre del cual se generó este por recurrencia"
+    )
 
     class Meta:
         db_table = 'processes'
@@ -320,19 +360,228 @@ class Process(TimeStampedModel):
         self.start_date = timezone.now()
         self.save()
 
-    def complete_process(self):
-        """Completa el proceso"""
-        from django.utils import timezone
-        self.status = 'completed'
-        self.completed_at = timezone.now()
-        self.save()
-
     def fail_process(self, error_message=""):
         """Marca el proceso como fallido"""
         from django.utils import timezone
         self.status = 'failed'
         self.completed_at = timezone.now()
         self.save()
+
+    def complete_process(self):
+        """Completa el proceso y genera el siguiente si es recurrente"""
+        from django.utils import timezone
+        self.status = 'completed'
+        self.completed_at = timezone.now()
+        self.save()
+
+        # Si es recurrente, programar la generación del siguiente
+        if self.is_recurring and self.recurrence_type:
+            self._schedule_next_occurrence()
+
+    def _schedule_next_occurrence(self):
+        """Programa la generación del siguiente proceso recurrente"""
+        if not self.is_recurring:
+            return
+
+        # COMENTADO: No generar inmediatamente el siguiente proceso
+        # Los procesos recurrentes se deben generar SOLO cuando el actual se completa
+        #
+        # Para procesos futuros programados (no mensual), se puede implementar esto:
+        # if self.recurrence_type != 'monthly':
+        #     next_date = self._calculate_next_occurrence_date()
+        #     if next_date:
+        #         from .tasks import create_recurring_process
+        #         create_recurring_process.apply_async(
+        #             args=[self.id],
+        #             eta=next_date
+        #         )
+
+    def _calculate_next_occurrence_date(self):
+        """Calcula la fecha del siguiente proceso"""
+        from dateutil.relativedelta import relativedelta
+        from django.utils import timezone
+
+        if not self.completed_at:
+            return None
+
+        base_date = self.completed_at
+        config = self.recurrence_config
+
+        if self.recurrence_type == 'monthly':
+            # Para F29: generar el proceso del siguiente mes
+            period_month = config.get('period_month')
+            period_year = config.get('period_year')
+
+            if period_month and period_year:
+                # Calcular siguiente período
+                next_month = period_month + 1
+                next_year = period_year
+
+                if next_month > 12:
+                    next_month = 1
+                    next_year += 1
+
+                # El proceso se debe crear unos días antes del vencimiento
+                # F29 vence el día 12 del mes siguiente al período
+                from datetime import datetime
+                next_process_date = datetime(next_year, next_month, 5)  # Crear el 5 del mes
+                return timezone.make_aware(next_process_date)
+
+        elif self.recurrence_type == 'quarterly':
+            return base_date + relativedelta(months=3)
+        elif self.recurrence_type == 'annual':
+            return base_date + relativedelta(years=1)
+        elif self.recurrence_type == 'custom':
+            # Usar configuración personalizada
+            days = config.get('interval_days', 30)
+            return base_date + relativedelta(days=days)
+
+        return None
+
+    def generate_next_occurrence(self):
+        """Genera el siguiente proceso en la serie recurrente"""
+        if not self.is_recurring:
+            return None
+
+        # Calcular datos del siguiente período
+        next_period_data = self._calculate_next_period_data()
+
+        # Crear el nuevo proceso
+        next_process = Process.objects.create(
+            name=next_period_data['name'],
+            description=next_period_data['description'],
+            process_type=self.process_type,
+            company_rut=self.company_rut,
+            company_dv=self.company_dv,
+            created_by=self.created_by,
+            assigned_to=self.assigned_to,
+            due_date=next_period_data['due_date'],
+            config_data=next_period_data['config_data'],
+            is_recurring=self.is_recurring,
+            recurrence_type=self.recurrence_type,
+            recurrence_config=self.recurrence_config,
+            recurrence_source=self,
+            status='active'
+        )
+
+        # Copiar las tareas del proceso original
+        self._copy_tasks_to_next_process(next_process, next_period_data)
+
+        return next_process
+
+    def _calculate_next_period_data(self):
+        """Calcula los datos específicos del siguiente período"""
+        config = self.recurrence_config
+
+        if self.recurrence_type == 'monthly':
+            # Para procesos mensuales como F29
+            current_month = config.get('period_month', 1)
+            current_year = config.get('period_year', 2024)
+
+            next_month = current_month + 1
+            next_year = current_year
+
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+
+            # Calcular fecha de vencimiento (F29 vence el 12 del mes siguiente)
+            from datetime import datetime
+            from django.utils import timezone
+            due_date = timezone.make_aware(datetime(next_year, next_month + 1 if next_month < 12 else 1, 12))
+            if next_month == 12:  # Si es diciembre, vence en enero del siguiente año
+                due_date = timezone.make_aware(datetime(next_year + 1, 1, 12))
+
+            return {
+                'name': f"F29 {next_month:02d}-{next_year} - {self.company_rut}-{self.company_dv}",
+                'description': f"Declaración F29 para el período {next_month:02d}/{next_year}",
+                'due_date': due_date,
+                'config_data': {
+                    **config,
+                    'period_month': next_month,
+                    'period_year': next_year,
+                    'period': f"{next_year}-{next_month:02d}"
+                }
+            }
+
+        # Agregar más tipos de recurrencia según necesidad
+        return {}
+
+    def _copy_tasks_to_next_process(self, next_process, period_data):
+        """Copia las tareas del proceso actual al siguiente"""
+        from datetime import timedelta
+
+        for process_task in self.process_tasks.all():
+            # Crear nueva tarea basada en la original
+            new_task = Task.objects.create(
+                title=self._update_task_title_for_period(process_task.task.title, period_data),
+                description=process_task.task.description,
+                task_type=process_task.task.task_type,
+                company_rut=self.company_rut,
+                company_dv=self.company_dv,
+                assigned_to=self.assigned_to,
+                created_by=self.created_by,
+                status='pending',
+                task_data={
+                    **process_task.task.task_data,
+                    **period_data['config_data']
+                }
+            )
+
+            # Calcular fecha límite para esta tarea
+            task_due_date = self._calculate_task_due_date(process_task, next_process)
+            if task_due_date:
+                new_task.due_date = task_due_date
+                new_task.save()
+
+            # Crear la relación ProcessTask
+            ProcessTask.objects.create(
+                process=next_process,
+                task=new_task,
+                execution_order=process_task.execution_order,
+                execution_conditions=process_task.execution_conditions,
+                is_optional=process_task.is_optional,
+                can_run_parallel=process_task.can_run_parallel,
+                context_data=process_task.context_data,
+                due_date_offset_days=process_task.due_date_offset_days,
+                due_date_from_previous=process_task.due_date_from_previous,
+                absolute_due_date=process_task.absolute_due_date
+            )
+
+    def _update_task_title_for_period(self, original_title, period_data):
+        """Actualiza el título de la tarea para el nuevo período"""
+        config = period_data['config_data']
+        period = config.get('period', '')
+
+        # Reemplazar referencias de período en el título
+        if 'F29' in original_title and period:
+            return original_title.replace('F29', f"F29 {period}")
+
+        return f"{original_title} - {period}" if period else original_title
+
+    def _calculate_task_due_date(self, process_task, next_process):
+        """Calcula la fecha límite para una tarea específica"""
+        from datetime import timedelta
+
+        # Si tiene fecha absoluta, usarla
+        if process_task.absolute_due_date:
+            return process_task.absolute_due_date
+
+        # Si tiene offset desde inicio del proceso
+        if process_task.due_date_offset_days and next_process.start_date:
+            return next_process.start_date + timedelta(days=process_task.due_date_offset_days)
+
+        # Si depende de la tarea anterior
+        if process_task.due_date_from_previous:
+            previous_task = next_process.process_tasks.filter(
+                execution_order__lt=process_task.execution_order
+            ).order_by('-execution_order').first()
+
+            if previous_task and previous_task.task.due_date:
+                return previous_task.task.due_date + timedelta(days=process_task.due_date_from_previous)
+
+        # Por defecto, usar la fecha límite del proceso
+        return next_process.due_date
 
 
 class ProcessTemplate(TimeStampedModel):
@@ -377,6 +626,23 @@ class ProcessTask(TimeStampedModel):
 
     # Datos específicos para esta tarea en el contexto del proceso
     context_data = models.JSONField(default=dict, help_text="Datos de contexto para la tarea")
+
+    # Fechas límite específicas para esta tarea en el proceso
+    due_date_offset_days = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Días desde el inicio del proceso para calcular fecha límite"
+    )
+    due_date_from_previous = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Días desde completación de tarea anterior para calcular fecha límite"
+    )
+    absolute_due_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha límite absoluta para esta tarea (sobrescribe cálculos)"
+    )
 
     class Meta:
         db_table = 'process_tasks'

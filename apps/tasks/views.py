@@ -271,23 +271,48 @@ class ProcessViewSet(viewsets.ModelViewSet):
     """ViewSet para procesos del sistema"""
 
     serializer_class = ProcessSerializer
-    permission_classes = [permissions.AllowAny]  # Temporal para testing
+    permission_classes = [permissions.AllowAny]  # Temporal para testing - TODO: IsAuthenticated
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'process_type', 'company_rut', 'assigned_to', 'is_template']
+    filterset_fields = ['status', 'process_type', 'company', 'company_rut', 'assigned_to', 'is_template']
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'due_date', 'start_date']
     ordering = ['-created_at']
 
     def get_queryset(self):
-        """Filtrar procesos por usuario"""
-        if hasattr(self.request.user, 'email') and self.request.user.email:
-            user_email = self.request.user.email
-            return Process.objects.filter(
-                Q(assigned_to=user_email) | Q(created_by=user_email)
-            )
-        else:
-            # Para usuarios anónimos, devolver todos los procesos (temporal para testing)
-            return Process.objects.all()
+        """Filtrar procesos por usuario y empresa"""
+        queryset = Process.objects.all()
+
+        # Filtrar por company_id si se proporciona
+        company_id = self.request.query_params.get('company_id')
+        if company_id:
+            try:
+                # Filtrar directamente por la relación ForeignKey
+                queryset = queryset.filter(company_id=company_id)
+            except (ValueError, TypeError):
+                # Si el company_id no es válido, devolver queryset vacío
+                queryset = queryset.none()
+
+        # Verificar que el usuario tenga acceso a la empresa solicitada
+        # Solo aplicar si el usuario está autenticado y tenemos company_id
+        if (hasattr(self.request.user, 'email') and
+            self.request.user.email and
+            self.request.user.is_authenticated and
+            company_id):
+
+            from apps.accounts.models import UserRole
+
+            # Verificar que el usuario tenga un rol activo en la empresa solicitada
+            user_has_access = UserRole.objects.filter(
+                user__email=self.request.user.email,
+                company_id=company_id,
+                active=True
+            ).exists()
+
+            if not user_has_access:
+                # Si el usuario no tiene acceso a la empresa, devolver queryset vacío
+                queryset = queryset.none()
+
+        return queryset
 
     def get_serializer_class(self):
         if self.action == 'create':

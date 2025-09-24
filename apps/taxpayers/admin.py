@@ -1,20 +1,119 @@
 from django.contrib import admin
+from django import forms
 from .models import TaxPayer, TaxpayerSiiCredentials
+
+
+class TaxPayerAdminForm(forms.ModelForm):
+    """Formulario personalizado para TaxPayer con checkboxes para procesos"""
+    f29_monthly = forms.BooleanField(label='F29 Mensual', required=False,
+                                     help_text='Declaración mensual de IVA')
+    f22_annual = forms.BooleanField(label='F22 Anual', required=False,
+                                    help_text='Declaración anual de renta')
+    f3323_quarterly = forms.BooleanField(label='F3323 Trimestral', required=False,
+                                         help_text='Declaración trimestral simplificada')
+    document_sync = forms.BooleanField(label='Sincronización de Documentos', required=False,
+                                       help_text='Sincronización automática de DTEs')
+    sii_integration = forms.BooleanField(label='Integración SII', required=False,
+                                         help_text='Integración completa con SII')
+
+    class Meta:
+        model = TaxPayer
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            # Cargar valores actuales de setting_procesos
+            settings = self.instance.get_process_settings()
+            self.fields['f29_monthly'].initial = settings.get('f29_monthly', False)
+            self.fields['f22_annual'].initial = settings.get('f22_annual', False)
+            self.fields['f3323_quarterly'].initial = settings.get('f3323_quarterly', False)
+            self.fields['document_sync'].initial = settings.get('document_sync', True)
+            self.fields['sii_integration'].initial = settings.get('sii_integration', True)
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        # Actualizar setting_procesos con los valores del formulario
+        instance.setting_procesos = {
+            'f29_monthly': self.cleaned_data.get('f29_monthly', False),
+            'f22_annual': self.cleaned_data.get('f22_annual', False),
+            'f3323_quarterly': self.cleaned_data.get('f3323_quarterly', False),
+            'document_sync': self.cleaned_data.get('document_sync', True),
+            'sii_integration': self.cleaned_data.get('sii_integration', True),
+        }
+
+        if commit:
+            instance.save()
+        return instance
 
 
 @admin.register(TaxPayer)
 class TaxPayerAdmin(admin.ModelAdmin):
-    list_display = ('razon_social', 'tax_id', 'is_verified', 'last_sii_sync', 'created_at')
+    form = TaxPayerAdminForm
+    list_display = ('tax_id', 'display_razon_social', 'company', 'display_processes', 'is_verified', 'last_sii_sync')
+    list_display_links = ('tax_id', 'display_razon_social')
     list_filter = ('is_verified', 'is_active', 'data_source', 'created_at')
-    search_fields = ('razon_social', 'tax_id', 'rut')
-    readonly_fields = ('full_rut', 'created_at', 'updated_at')
+    search_fields = ('razon_social', 'tax_id', 'rut', 'company__display_name', 'company__business_name')
+    readonly_fields = ('full_rut', 'created_at', 'updated_at', 'formatted_settings')
+
+    def display_razon_social(self, obj):
+        """Muestra la razón social o un placeholder si está vacío"""
+        return obj.razon_social or f"(Sin razón social)"
+    display_razon_social.short_description = "Razón Social"
+
+    def display_processes(self, obj):
+        """Muestra los procesos activos de forma resumida"""
+        if not obj.setting_procesos:
+            return "Sin configurar"
+
+        active = []
+        settings = obj.get_process_settings()
+
+        if settings.get('f29_monthly'): active.append('F29')
+        if settings.get('f22_annual'): active.append('F22')
+        if settings.get('f3323_quarterly'): active.append('F3323')
+        if settings.get('document_sync'): active.append('Docs')
+        if settings.get('sii_integration'): active.append('SII')
+
+        return ', '.join(active) if active else 'Ninguno'
+    display_processes.short_description = "Procesos Activos"
+
+    def formatted_settings(self, obj):
+        """Muestra la configuración de procesos de forma legible"""
+        if not obj.setting_procesos:
+            return "No configurado"
+
+        settings = obj.get_process_settings()
+        lines = []
+
+        lines.append("✅ Procesos Habilitados:")
+        if settings.get('f29_monthly'): lines.append("  • F29 Mensual")
+        if settings.get('f22_annual'): lines.append("  • F22 Anual")
+        if settings.get('f3323_quarterly'): lines.append("  • F3323 Trimestral")
+        if settings.get('document_sync'): lines.append("  • Sincronización de Documentos")
+        if settings.get('sii_integration'): lines.append("  • Integración SII")
+
+        lines.append("\n❌ Procesos Deshabilitados:")
+        if not settings.get('f29_monthly'): lines.append("  • F29 Mensual")
+        if not settings.get('f22_annual'): lines.append("  • F22 Anual")
+        if not settings.get('f3323_quarterly'): lines.append("  • F3323 Trimestral")
+        if not settings.get('document_sync'): lines.append("  • Sincronización de Documentos")
+        if not settings.get('sii_integration'): lines.append("  • Integración SII")
+
+        return '\n'.join(lines)
+    formatted_settings.short_description = "Configuración de Procesos"
 
     fieldsets = (
         ('Información Básica', {
-            'fields': ('tax_id', 'rut', 'dv', 'full_rut')
+            'fields': ('company', 'tax_id', 'rut', 'dv', 'full_rut')
         }),
         ('Datos del Contribuyente', {
             'fields': ('razon_social',)
+        }),
+        ('Configuración de Procesos Tributarios', {
+            'fields': ('f29_monthly', 'f22_annual', 'f3323_quarterly', 'document_sync', 'sii_integration', 'formatted_settings'),
+            'description': 'Seleccione los procesos tributarios que debe gestionar este contribuyente'
         }),
         ('Metadatos de Extracción', {
             'fields': ('data_source', 'last_sii_sync', 'is_verified', 'sii_raw_data'),

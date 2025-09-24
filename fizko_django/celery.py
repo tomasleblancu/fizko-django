@@ -105,7 +105,7 @@ app.conf.beat_schedule = {
     
     # Cleanup old task results weekly
     'cleanup-task-results': {
-        'task': 'apps.tasks.tasks.cleanup_old_results',
+        'task': 'apps.tasks.tasks.cleanup.cleanup_old_results',
         'schedule': crontab(day_of_week=1, hour=1, minute=0),  # Monday at 1 AM
         'options': {'queue': 'default'},
     },

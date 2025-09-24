@@ -58,7 +58,7 @@ class Command(BaseCommand):
         deactivated_count = 0
 
         # First, deactivate old steps that are no longer needed
-        old_step_names = ['welcome', 'profile', 'business']
+        old_step_names = ['welcome', 'profile', 'business', 'process_settings']
         old_steps = OnboardingStep.objects.filter(name__in=old_step_names)
         for old_step in old_steps:
             old_step.is_active = False

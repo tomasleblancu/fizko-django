@@ -36,9 +36,9 @@ class TaskScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(Process)
 class ProcessAdmin(admin.ModelAdmin):
-    list_display = ('name', 'process_type', 'status', 'company_full_rut', 'progress_percentage', 'due_date', 'is_overdue')
-    list_filter = ('status', 'process_type', 'is_template', 'due_date')
-    search_fields = ('name', 'description', 'company_rut', 'assigned_to', 'created_by')
+    list_display = ('name', 'process_type', 'status', 'company', 'company_full_rut', 'progress_percentage', 'due_date', 'is_recurring', 'is_overdue')
+    list_filter = ('status', 'process_type', 'company', 'is_template', 'is_recurring', 'recurrence_type', 'due_date')
+    search_fields = ('name', 'description', 'company__name', 'company_rut', 'assigned_to', 'created_by')
     readonly_fields = ('progress_percentage', 'company_full_rut', 'is_overdue', 'current_step')
     date_hierarchy = 'due_date'
 
@@ -47,13 +47,17 @@ class ProcessAdmin(admin.ModelAdmin):
             'fields': ('name', 'description', 'process_type', 'status')
         }),
         ('Empresa', {
-            'fields': ('company_rut', 'company_dv', 'company_full_rut')
+            'fields': ('company', 'company_rut', 'company_dv', 'company_full_rut')
         }),
         ('Asignación', {
             'fields': ('created_by', 'assigned_to')
         }),
         ('Fechas', {
             'fields': ('start_date', 'due_date', 'completed_at')
+        }),
+        ('Recurrencia', {
+            'fields': ('is_recurring', 'recurrence_type', 'recurrence_config', 'next_occurrence_date', 'recurrence_source'),
+            'classes': ('collapse',)
         }),
         ('Configuración', {
             'fields': ('is_template', 'parent_process', 'config_data'),
@@ -76,16 +80,29 @@ class ProcessTemplateAdmin(admin.ModelAdmin):
 class ProcessTaskInline(admin.TabularInline):
     model = ProcessTask
     extra = 0
-    fields = ('task', 'execution_order', 'is_optional', 'can_run_parallel')
+    fields = ('task', 'execution_order', 'is_optional', 'can_run_parallel', 'due_date_offset_days', 'due_date_from_previous')
     ordering = ('execution_order',)
 
 
 @admin.register(ProcessTask)
 class ProcessTaskAdmin(admin.ModelAdmin):
-    list_display = ('process', 'task', 'execution_order', 'is_optional', 'can_run_parallel')
+    list_display = ('process', 'task', 'execution_order', 'is_optional', 'can_run_parallel', 'due_date_offset_days')
     list_filter = ('is_optional', 'can_run_parallel')
     search_fields = ('process__name', 'task__title')
     ordering = ('process', 'execution_order')
+
+    fieldsets = (
+        ('Básico', {
+            'fields': ('process', 'task', 'execution_order')
+        }),
+        ('Configuración', {
+            'fields': ('is_optional', 'can_run_parallel', 'execution_conditions', 'context_data')
+        }),
+        ('Fechas Límite', {
+            'fields': ('due_date_offset_days', 'due_date_from_previous', 'absolute_due_date'),
+            'description': 'Configuración de fechas límite para esta tarea en el proceso'
+        }),
+    )
 
 
 @admin.register(ProcessExecution)

@@ -169,13 +169,15 @@ class ProcessTaskSerializer(serializers.ModelSerializer):
     task_title = serializers.CharField(source='task.title', read_only=True)
     task_status = serializers.CharField(source='task.status', read_only=True)
     task_type = serializers.CharField(source='task.task_type', read_only=True)
+    task_due_date = serializers.DateTimeField(source='task.due_date', read_only=True)
+    task_is_overdue = serializers.ReadOnlyField(source='task.is_overdue')
 
     class Meta:
         model = ProcessTask
         fields = [
             'id', 'process', 'task', 'task_title', 'task_status', 'task_type',
-            'execution_order', 'execution_conditions', 'is_optional',
-            'can_run_parallel', 'context_data', 'created_at', 'updated_at'
+            'task_due_date', 'task_is_overdue', 'execution_order', 'execution_conditions',
+            'is_optional', 'can_run_parallel', 'context_data', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -273,7 +275,7 @@ class ProcessSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = Process
         fields = [
-            'id', 'name', 'process_type', 'status', 'company_full_rut',
+            'id', 'name', 'description', 'process_type', 'status', 'company_full_rut',
             'progress_percentage', 'due_date', 'is_overdue', 'task_count', 'created_at'
         ]
 

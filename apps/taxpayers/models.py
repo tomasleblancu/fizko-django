@@ -38,6 +38,13 @@ class TaxPayer(TimeStampedModel):
     # Estado del contribuyente
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False, help_text="Verificado contra SII")
+
+    # Configuración de procesos tributarios
+    setting_procesos = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Configuración de procesos tributarios habilitados para este contribuyente"
+    )
     
     class Meta:
         db_table = 'taxpayers'
@@ -84,6 +91,47 @@ class TaxPayer(TimeStampedModel):
         self.last_sii_sync = timezone.now()
 
         # Guardar cambios
+        self.save()
+
+    def get_process_settings(self):
+        """Retorna la configuración de procesos del contribuyente"""
+        default_config = {
+            'f29_monthly': False,
+            'f22_annual': False,
+            'f3323_quarterly': False,
+            'document_sync': True,  # Siempre habilitado por defecto
+            'sii_integration': True  # Siempre habilitado por defecto
+        }
+
+        if not self.setting_procesos:
+            return default_config
+
+        return {**default_config, **self.setting_procesos}
+
+    def update_process_settings(self, settings_update):
+        """Actualiza la configuración de procesos"""
+        current_settings = self.get_process_settings()
+        current_settings.update(settings_update)
+        self.setting_procesos = current_settings
+        self.save()
+
+    def is_process_enabled(self, process_type):
+        """Verifica si un tipo de proceso está habilitado"""
+        settings = self.get_process_settings()
+        return settings.get(process_type, False)
+
+    def enable_process(self, process_type):
+        """Habilita un tipo de proceso específico"""
+        settings = self.get_process_settings()
+        settings[process_type] = True
+        self.setting_procesos = settings
+        self.save()
+
+    def disable_process(self, process_type):
+        """Deshabilita un tipo de proceso específico"""
+        settings = self.get_process_settings()
+        settings[process_type] = False
+        self.setting_procesos = settings
         self.save()
 
 
