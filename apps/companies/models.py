@@ -1,5 +1,7 @@
 from django.db import models
 from django.core.validators import RegexValidator
+from django.utils import timezone
+from datetime import timedelta
 from apps.core.models import TimeStampedModel
 
 
@@ -187,5 +189,171 @@ class Company(TimeStampedModel):
             # Incrementar fallos de verificación
             credentials.verification_failures += 1
             credentials.save()
-            
+
             raise ValueError(f"Error sincronizando con SII: {str(e)}")
+
+
+class BackgroundTaskTracker(TimeStampedModel):
+    """
+    Modelo para rastrear el estado de tareas en segundo plano asociadas a una empresa.
+    Usado especialmente para mostrar progreso durante el onboarding.
+    """
+    TASK_STATUS_CHOICES = [
+        ('pending', 'Pendiente'),
+        ('running', 'Ejecutándose'),
+        ('success', 'Completada'),
+        ('failed', 'Falló'),
+    ]
+
+    TASK_NAME_CHOICES = [
+        ('create_processes_from_taxpayer_settings', 'Creando procesos tributarios'),
+        ('sync_sii_documents_task', 'Sincronizando documentos SII'),
+        ('sync_sii_documents_full_history_task', 'Sincronizando historial completo SII'),
+        ('sync_all_historical_forms_task', 'Sincronizando formularios históricos'),
+    ]
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name='background_tasks',
+        help_text="Empresa asociada a la tarea"
+    )
+
+    task_id = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text="ID único de la tarea de Celery"
+    )
+
+    task_name = models.CharField(
+        max_length=100,
+        choices=TASK_NAME_CHOICES,
+        help_text="Nombre identificativo de la tarea"
+    )
+
+    display_name = models.CharField(
+        max_length=255,
+        help_text="Nombre a mostrar al usuario"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=TASK_STATUS_CHOICES,
+        default='pending',
+        help_text="Estado actual de la tarea"
+    )
+
+    progress = models.IntegerField(
+        default=0,
+        help_text="Progreso de 0 a 100"
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Momento en que comenzó la ejecución"
+    )
+
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Momento en que terminó la ejecución"
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        help_text="Mensaje de error si la tarea falló"
+    )
+
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Información adicional sobre la tarea"
+    )
+
+    class Meta:
+        db_table = 'background_task_trackers'
+        verbose_name = 'Background Task Tracker'
+        verbose_name_plural = 'Background Task Trackers'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company', 'status']),
+            models.Index(fields=['task_id']),
+            models.Index(fields=['status', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_task_name_display()} - {self.company.business_name} ({self.status})"
+
+    @property
+    def is_active(self):
+        """Retorna True si la tarea está pendiente o ejecutándose"""
+        return self.status in ['pending', 'running']
+
+    @property
+    def is_completed(self):
+        """Retorna True si la tarea terminó (exitosa o con error)"""
+        return self.status in ['success', 'failed']
+
+    @property
+    def duration(self):
+        """Retorna la duración de la tarea si ya terminó"""
+        if self.started_at and self.completed_at:
+            return self.completed_at - self.started_at
+        return None
+
+    @classmethod
+    def create_for_task(cls, company, task_result, task_name, display_name, metadata=None):
+        """
+        Factory method para crear un tracker desde un resultado de tarea de Celery
+        """
+        return cls.objects.create(
+            company=company,
+            task_id=task_result.id,
+            task_name=task_name,
+            display_name=display_name,
+            status='pending',
+            metadata=metadata or {}
+        )
+
+    @classmethod
+    def cleanup_old_completed_tasks(cls, hours_old=1):
+        """
+        Elimina tareas completadas más antiguas que el tiempo especificado
+        """
+        cutoff_time = timezone.now() - timedelta(hours=hours_old)
+        old_tasks = cls.objects.filter(
+            status__in=['success', 'failed'],
+            completed_at__lt=cutoff_time
+        )
+        count = old_tasks.count()
+        old_tasks.delete()
+        return count
+
+    def update_from_celery_result(self, celery_result):
+        """
+        Actualiza el estado del tracker basado en el resultado de Celery
+        """
+        if celery_result.state == 'PENDING':
+            self.status = 'pending'
+            self.progress = 0
+        elif celery_result.state == 'PROGRESS':
+            self.status = 'running'
+            if not self.started_at:
+                self.started_at = timezone.now()
+            # Intentar extraer progreso del resultado
+            if hasattr(celery_result, 'info') and isinstance(celery_result.info, dict):
+                self.progress = celery_result.info.get('progress', self.progress)
+        elif celery_result.state == 'SUCCESS':
+            self.status = 'success'
+            self.progress = 100
+            if not self.completed_at:
+                self.completed_at = timezone.now()
+        elif celery_result.state == 'FAILURE':
+            self.status = 'failed'
+            if not self.completed_at:
+                self.completed_at = timezone.now()
+            self.error_message = str(celery_result.info) if celery_result.info else 'Error desconocido'
+
+        self.save()
+        return self

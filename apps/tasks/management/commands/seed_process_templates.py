@@ -239,7 +239,7 @@ class Command(BaseCommand):
 
         template, created = ProcessTemplate.objects.get_or_create(
             name='F29 - Declaración Mensual IVA',
-            process_type='tax_monthly',
+            process_type='f29',
             defaults={
                 'description': (
                     'Proceso mensual para la declaración y pago del Formulario 29 (IVA). '
@@ -388,7 +388,7 @@ class Command(BaseCommand):
 
         template, created = ProcessTemplate.objects.get_or_create(
             name='F22 - Declaración Anual de Renta',
-            process_type='tax_annual',
+            process_type='f22',
             defaults={
                 'description': (
                     'Proceso anual para la preparación y presentación del Formulario 22 '

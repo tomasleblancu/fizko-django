@@ -7,8 +7,9 @@ from django.db import transaction
 from datetime import datetime
 from django.utils import timezone
 import logging
+from celery.result import AsyncResult
 
-from .models import Company
+from .models import Company, BackgroundTaskTracker
 from .serializers import CompanySerializer, CompanyCreateSerializer, CompanyWithSiiDataSerializer
 from apps.sii.api.servicev2 import SIIServiceV2
 from apps.sii.utils.exceptions import SIIServiceException, SIIAuthenticationError
@@ -272,6 +273,119 @@ class CompanyViewSet(viewsets.ModelViewSet):
             'changes': changes,
             'results': results,
             'new_settings': taxpayer.get_process_settings()
+        })
+
+    @action(detail=True, methods=['get'])
+    def task_status(self, request, pk=None):
+        """
+        Obtener estado de tareas en segundo plano de una empresa específica.
+        Usado principalmente durante el onboarding para mostrar progreso.
+
+        GET /api/v1/companies/{company_id}/task-status/
+
+        Returns:
+        {
+            "active_tasks": [
+                {
+                    "task_id": "abc123",
+                    "name": "Creando procesos tributarios",
+                    "status": "running|success|failed|pending",
+                    "progress": 50,
+                    "started_at": "2024-01-01T10:00:00Z"
+                }
+            ],
+            "all_completed": false
+        }
+        """
+        company = self.get_object()
+
+        # Obtener todas las tareas activas (pendientes o ejecutándose)
+        active_trackers = BackgroundTaskTracker.objects.filter(
+            company=company,
+            status__in=['pending', 'running']
+        ).order_by('created_at')
+
+        active_tasks = []
+
+        for tracker in active_trackers:
+            try:
+                # Obtener resultado actual desde Celery
+                celery_result = AsyncResult(tracker.task_id)
+
+                # Actualizar el tracker con el estado actual de Celery
+                tracker.update_from_celery_result(celery_result)
+
+                # Agregar a la lista de tareas activas solo si sigue activa después de la actualización
+                if tracker.is_active:
+                    task_data = {
+                        'task_id': tracker.task_id,
+                        'name': tracker.display_name,
+                        'status': tracker.status,
+                        'progress': tracker.progress,
+                        'started_at': tracker.started_at.isoformat() if tracker.started_at else None,
+                        'task_type': tracker.task_name,
+                        'duration_seconds': tracker.duration.total_seconds() if tracker.duration else None
+                    }
+
+                    # Agregar información de error si falló
+                    if tracker.status == 'failed':
+                        task_data['error_message'] = tracker.error_message
+
+                    active_tasks.append(task_data)
+
+            except Exception as e:
+                logger.error(f"Error retrieving status for task {tracker.task_id}: {str(e)}")
+                # Si hay error conectándose a Celery, usar el estado almacenado
+                if tracker.is_active:
+                    active_tasks.append({
+                        'task_id': tracker.task_id,
+                        'name': tracker.display_name,
+                        'status': tracker.status,
+                        'progress': tracker.progress,
+                        'started_at': tracker.started_at.isoformat() if tracker.started_at else None,
+                        'task_type': tracker.task_name,
+                        'error_retrieving_status': True
+                    })
+
+        # Verificar si todas las tareas están completadas
+        total_tasks = BackgroundTaskTracker.objects.filter(company=company).count()
+        completed_tasks = BackgroundTaskTracker.objects.filter(
+            company=company,
+            status__in=['success', 'failed']
+        ).count()
+
+        all_completed = len(active_tasks) == 0 and total_tasks > 0
+
+        # También obtener un resumen de tareas completadas recientes para contexto
+        recent_completed = BackgroundTaskTracker.objects.filter(
+            company=company,
+            status__in=['success', 'failed'],
+            completed_at__gte=timezone.now() - timezone.timedelta(hours=2)
+        ).order_by('-completed_at')[:5]
+
+        completed_tasks_info = []
+        for task in recent_completed:
+            completed_tasks_info.append({
+                'task_id': task.task_id,
+                'name': task.display_name,
+                'status': task.status,
+                'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+                'duration_seconds': task.duration.total_seconds() if task.duration else None,
+                'error_message': task.error_message if task.status == 'failed' else None
+            })
+
+        return Response({
+            'active_tasks': active_tasks,
+            'all_completed': all_completed,
+            'summary': {
+                'total_tasks': total_tasks,
+                'active_count': len(active_tasks),
+                'completed_count': completed_tasks,
+                'recent_completed': completed_tasks_info
+            },
+            'company_id': company.id,
+            'company_name': company.business_name,
+            'checked_at': timezone.now().isoformat()
         })
 
 

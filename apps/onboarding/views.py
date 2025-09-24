@@ -188,14 +188,14 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             process_creation_result = None
 
             if company_id:
-                # 1. Sincronización inicial rápida (últimos 2 meses)
+                # 1. Crear procesos tributarios según configuración del TaxPayer (PRIMERO)
+                process_creation_result = self._create_taxpayer_processes(company_id)
+
+                # 2. Sincronización inicial rápida (últimos 2 meses)
                 initial_sync_result = self._start_initial_dte_sync(company_id)
 
-                # 2. Sincronización histórica completa (todo el historial)
+                # 3. Sincronización histórica completa (todo el historial)
                 historical_sync_result = self._start_complete_historical_sync(company_id)
-
-                # 3. Crear procesos tributarios según configuración del TaxPayer
-                process_creation_result = self._create_taxpayer_processes(company_id)
 
             return Response({
                 'status': 'success',
@@ -737,8 +737,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         """
         try:
             from datetime import date, timedelta
-            from apps.companies.models import Company
-            
+            from apps.companies.models import Company, BackgroundTaskTracker
+
             # Obtener la empresa
             company = Company.objects.get(id=company_id)
             
@@ -763,6 +763,20 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 priority='high',  # Alta prioridad por ser onboarding
                 description=f'Sincronización inicial rápida onboarding - {company.business_name}',
                 trigger_full_sync=True  # CRUCIAL: Disparar sync completo al finalizar
+            )
+
+            # CREAR TRACKER para monitorear progreso
+            BackgroundTaskTracker.create_for_task(
+                company=company,
+                task_result=task_result,
+                task_name='sync_sii_documents_task',
+                display_name='Sincronizando documentos SII',
+                metadata={
+                    'company_id': company_id,
+                    'sync_type': 'initial',
+                    'fecha_desde': fecha_desde,
+                    'fecha_hasta': fecha_hasta
+                }
             )
             
             return {
@@ -810,8 +824,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Se ejecuta al FINALIZAR el onboarding completo
         """
         try:
-            from apps.companies.models import Company
-            
+            from apps.companies.models import Company, BackgroundTaskTracker
+
             # Obtener la empresa
             company = Company.objects.get(id=company_id)
             
@@ -831,12 +845,39 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 user_email=user_email
             )
 
+            # CREAR TRACKER para documentos históricos
+            BackgroundTaskTracker.create_for_task(
+                company=company,
+                task_result=documents_task_result,
+                task_name='sync_sii_documents_full_history_task',
+                display_name='Sincronizando historial completo SII',
+                metadata={
+                    'company_id': company_id,
+                    'sync_type': 'full_history',
+                    'task_type': 'documents'
+                }
+            )
+
             # 2. Sincronización de formularios tributarios históricos
             forms_task_result = sync_all_historical_forms_task.delay(
                 company_rut=company_rut,
                 company_dv=company_dv,
                 user_email=user_email,
                 form_type='f29'
+            )
+
+            # CREAR TRACKER para formularios históricos
+            BackgroundTaskTracker.create_for_task(
+                company=company,
+                task_result=forms_task_result,
+                task_name='sync_all_historical_forms_task',
+                display_name='Sincronizando formularios históricos',
+                metadata={
+                    'company_id': company_id,
+                    'sync_type': 'full_history',
+                    'task_type': 'forms',
+                    'form_type': 'f29'
+                }
             )
 
             return {
@@ -892,7 +933,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Se ejecuta al FINALIZAR el onboarding para preparar los procesos tributarios
         """
         try:
-            from apps.companies.models import Company
+            from apps.companies.models import Company, BackgroundTaskTracker
 
             # Verificar que la empresa tenga TaxPayer
             company = Company.objects.get(id=company_id)
@@ -910,6 +951,15 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
             # Enviar tarea a Celery para procesamiento asíncrono
             task_result = create_processes_from_taxpayer_settings.delay(company_id=company_id)
+
+            # CREAR TRACKER para monitorear progreso
+            BackgroundTaskTracker.create_for_task(
+                company=company,
+                task_result=task_result,
+                task_name='create_processes_from_taxpayer_settings',
+                display_name='Creando procesos tributarios',
+                metadata={'company_id': company_id}
+            )
 
             # Obtener configuración actual del TaxPayer para informar
             taxpayer = company.taxpayer

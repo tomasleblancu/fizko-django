@@ -319,7 +319,28 @@ CELERY_ENABLE_UTC = True
 
 # Celery Beat
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
-CELERY_BEAT_SCHEDULE = {}
+CELERY_BEAT_SCHEDULE = {
+    # Cleanup old completed background task trackers every hour
+    'cleanup-old-completed-tasks': {
+        'task': 'companies.cleanup_old_completed_tasks',
+        'schedule': 3600.0,  # Every hour (in seconds)
+        'args': (1,),  # Clean tasks older than 1 hour
+        'options': {'queue': 'default'}
+    },
+    # Update task statuses every 2 minutes to keep UI current
+    'update-task-statuses': {
+        'task': 'companies.update_task_statuses',
+        'schedule': 120.0,  # Every 2 minutes
+        'options': {'queue': 'default'}
+    },
+    # Clean orphaned trackers daily
+    'cleanup-orphaned-trackers': {
+        'task': 'companies.cleanup_orphaned_trackers',
+        'schedule': 86400.0,  # Every 24 hours
+        'args': (24,),  # Clean trackers older than 24 hours
+        'options': {'queue': 'default'}
+    },
+}
 
 # Celery routing - optimized for Railway
 if IS_RAILWAY:
@@ -330,6 +351,7 @@ if IS_RAILWAY:
         'apps.forms.tasks.*': {'queue': 'default'},
         'apps.analytics.tasks.*': {'queue': 'default'},
         'apps.notifications.tasks.*': {'queue': 'default'},
+        'apps.companies.tasks.*': {'queue': 'default'},
     }
 else:
     CELERY_TASK_ROUTES = {
@@ -340,6 +362,7 @@ else:
         'apps.ai_assistant.tasks.*': {'queue': 'ai'},
         'apps.notifications.tasks.*': {'queue': 'notifications'},
         'apps.whatsapp.tasks.*': {'queue': 'whatsapp'},
+        'apps.companies.tasks.*': {'queue': 'default'},
     }
 
 # Worker configuration
