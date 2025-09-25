@@ -10,12 +10,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.db import transaction
 
-from .models import User, UserProfile, Role, UserRole
+from .models import User, UserProfile, Role, UserRole, VerificationCode
 from .serializers import (
-    UserSerializer, UserProfileSerializer, RoleSerializer, 
+    UserSerializer, UserProfileSerializer, RoleSerializer,
     UserRoleSerializer, CustomTokenObtainPairSerializer,
     UserRegistrationSerializer, ChangePasswordSerializer,
-    ProfileUpdateSerializer
+    ProfileUpdateSerializer, SendVerificationCodeSerializer,
+    VerifyCodeSerializer, ResendVerificationCodeSerializer
 )
 from apps.core.permissions import IsOwnerOrReadOnly, IsCompanyMember
 
@@ -69,22 +70,83 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        """Create new user with profile"""
+        """Create new user with profile and send verification codes"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        
+
         # Create user profile
         UserProfile.objects.create(user=user)
-        
-        # Generate tokens
-        refresh = RefreshToken.for_user(user)
-        
+
+        # Generate verification codes
+        email_code = VerificationCode.create_verification_code(user, 'email')
+        phone_code = VerificationCode.create_verification_code(user, 'phone')
+
+        # Send verification codes
+        self._send_email_verification(user, email_code.code)
+        self._send_phone_verification(user, phone_code.code)
+
         return Response({
             'user': UserSerializer(user).data,
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
+            'message': 'Usuario registrado. Por favor verifica tu email y teléfono.',
+            'next_step': 'verification',
+            'verification_required': {
+                'email': not user.email_verified,
+                'phone': not user.phone_verified
+            }
         }, status=status.HTTP_201_CREATED)
+
+    def _send_email_verification(self, user, code):
+        """Send email verification code"""
+        from django.core.mail import send_mail
+        from django.conf import settings
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        subject = f"Código de verificación Fizko: {code}"
+        message = f"""
+        Hola {user.first_name},
+
+        Tu código de verificación para Fizko es: {code}
+
+        Este código expira en 15 minutos.
+
+        Si no solicitaste este código, puedes ignorar este mensaje.
+
+        Saludos,
+        Equipo Fizko
+        """
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                fail_silently=False,
+            )
+            logger.info(f"Email verification sent successfully to {user.email}")
+        except Exception as e:
+            # Log error but don't fail registration
+            logger.error(f"Error sending email verification: {e}")
+            print(f"Error sending email verification: {e}")
+
+    def _send_phone_verification(self, user, code):
+        """Send WhatsApp verification code"""
+        from apps.whatsapp.services import WhatsAppService
+
+        try:
+            whatsapp_service = WhatsAppService()
+            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+
+            # Format phone number for WhatsApp (add + prefix)
+            phone_formatted = f"+{user.phone}"
+
+            whatsapp_service.send_message(phone_formatted, message)
+        except Exception as e:
+            # Log error but don't fail registration
+            print(f"Error sending WhatsApp verification: {e}")
     
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
@@ -296,3 +358,255 @@ def debug_user_permissions(request):
     }
 
     return Response(debug_info)
+
+
+class VerificationView(APIView):
+    """
+    API views for handling email and phone verification
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """Verify a code"""
+        serializer = VerifyCodeSerializer(data=request.data, context={'user': request.user})
+        serializer.is_valid(raise_exception=True)
+
+        verification_code = serializer.validated_data['verification_code']
+        verification_type = serializer.validated_data['verification_type']
+
+        # Mark code as used
+        verification_code.mark_as_used()
+
+        # Update user verification status
+        user = request.user
+        if verification_type == 'email':
+            user.email_verified = True
+        elif verification_type == 'phone':
+            user.phone_verified = True
+
+        user.save()
+
+        return Response({
+            'message': f'{verification_type.title()} verificado exitosamente',
+            'verification_status': {
+                'email_verified': user.email_verified,
+                'phone_verified': user.phone_verified,
+                'fully_verified': user.is_fully_verified
+            }
+        })
+
+
+class SendVerificationCodeView(APIView):
+    """
+    API view for sending verification codes
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """Send verification code"""
+        serializer = SendVerificationCodeSerializer(
+            data=request.data,
+            context={'user': request.user}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        verification_type = serializer.validated_data['verification_type']
+        user = request.user
+
+        # Create verification code
+        verification_code = VerificationCode.create_verification_code(user, verification_type)
+
+        # Send code
+        if verification_type == 'email':
+            self._send_email_verification(user, verification_code.code)
+        elif verification_type == 'phone':
+            self._send_phone_verification(user, verification_code.code)
+
+        return Response({
+            'message': f'Código de verificación enviado a tu {verification_type}',
+            'expires_at': verification_code.expires_at,
+            'can_resend_after': 5  # minutes
+        })
+
+    def _send_email_verification(self, user, code):
+        """Send email verification code"""
+        from django.core.mail import send_mail
+        from django.conf import settings
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        subject = f"Código de verificación Fizko: {code}"
+        message = f"""
+        Hola {user.first_name},
+
+        Tu código de verificación para Fizko es: {code}
+
+        Este código expira en 15 minutos.
+
+        Si no solicitaste este código, puedes ignorar este mensaje.
+
+        Saludos,
+        Equipo Fizko
+        """
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                fail_silently=False,
+            )
+            logger.info(f"Email verification sent successfully to {user.email}")
+        except Exception as e:
+            # Log error but don't fail registration
+            logger.error(f"Error sending email verification: {e}")
+            print(f"Error sending email verification: {e}")
+
+    def _send_phone_verification(self, user, code):
+        """Send WhatsApp verification code using Kapso service"""
+        from apps.chat.services.chat_service import chat_service
+
+        try:
+            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+
+            # Format phone number for WhatsApp (add + prefix)
+            phone_formatted = f"+{user.phone}"
+
+            result = chat_service.send_message(
+                service_type='whatsapp',
+                recipient=phone_formatted,
+                message=message
+            )
+
+            if result.get('status') == 'error':
+                print(f"Error sending WhatsApp verification via Kapso: {result.get('error')}")
+            else:
+                print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+
+        except Exception as e:
+            print(f"Error sending WhatsApp verification: {e}")
+
+
+class ResendVerificationCodeView(APIView):
+    """
+    API view for resending verification codes
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """Resend verification code"""
+        serializer = ResendVerificationCodeSerializer(
+            data=request.data,
+            context={'user': request.user}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        verification_type = serializer.validated_data['verification_type']
+        user = request.user
+
+        # Update last resent time on existing code
+        latest_code = VerificationCode.objects.filter(
+            user=user,
+            verification_type=verification_type
+        ).order_by('-created_at').first()
+
+        if latest_code:
+            from django.utils import timezone
+            latest_code.last_resent_at = timezone.now()
+            latest_code.save(update_fields=['last_resent_at'])
+
+        # Create new verification code
+        verification_code = VerificationCode.create_verification_code(user, verification_type)
+
+        # Send code
+        if verification_type == 'email':
+            self._send_email_verification(user, verification_code.code)
+        elif verification_type == 'phone':
+            self._send_phone_verification(user, verification_code.code)
+
+        return Response({
+            'message': f'Nuevo código de verificación enviado a tu {verification_type}',
+            'expires_at': verification_code.expires_at,
+            'can_resend_after': 5  # minutes
+        })
+
+    def _send_email_verification(self, user, code):
+        """Send email verification code"""
+        from django.core.mail import send_mail
+        from django.conf import settings
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        subject = f"Código de verificación Fizko: {code}"
+        message = f"""
+        Hola {user.first_name},
+
+        Tu código de verificación para Fizko es: {code}
+
+        Este código expira en 15 minutos.
+
+        Si no solicitaste este código, puedes ignorar este mensaje.
+
+        Saludos,
+        Equipo Fizko
+        """
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                fail_silently=False,
+            )
+            logger.info(f"Email verification sent successfully to {user.email}")
+        except Exception as e:
+            # Log error but don't fail registration
+            logger.error(f"Error sending email verification: {e}")
+            print(f"Error sending email verification: {e}")
+
+    def _send_phone_verification(self, user, code):
+        """Send WhatsApp verification code using Kapso service"""
+        from apps.chat.services.chat_service import chat_service
+
+        try:
+            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+
+            # Format phone number for WhatsApp (add + prefix)
+            phone_formatted = f"+{user.phone}"
+
+            result = chat_service.send_message(
+                service_type='whatsapp',
+                recipient=phone_formatted,
+                message=message
+            )
+
+            if result.get('status') == 'error':
+                print(f"Error sending WhatsApp verification via Kapso: {result.get('error')}")
+            else:
+                print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+
+        except Exception as e:
+            print(f"Error sending WhatsApp verification: {e}")
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def verification_status(request):
+    """
+    Get current user's verification status
+    """
+    user = request.user
+
+    return Response({
+        'user_id': user.id,
+        'email': user.email,
+        'phone': user.phone,
+        'email_verified': user.email_verified,
+        'phone_verified': user.phone_verified,
+        'fully_verified': user.is_fully_verified,
+        'requires_verification': not user.is_fully_verified
+    })

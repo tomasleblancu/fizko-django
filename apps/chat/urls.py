@@ -15,13 +15,14 @@ urlpatterns = [
     # API endpoints
     path('', include(router.urls)),
 
-    # TEMP: Comentado mientras se arreglan las views
-    # path('webhook/', views.WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
+    # Webhook para recibir mensajes de WhatsApp desde Kapso
+    path('webhook/', views.WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
     # path('send-message/', views.SendMessageView.as_view(), name='send-message'),
     # path('send-template/', views.SendTemplateView.as_view(), name='send-template'),
     # path('conversation/<uuid:conversation_id>/mark-read/',
     #      views.MarkConversationReadView.as_view(), name='mark-conversation-read'),
-    # path('test-response/', views.TestResponseView.as_view(), name='test-response'),
+    path('test-response/', views.TestResponseView.as_view(), name='test-response'),
+    path('test-supervisor/', views.TestSupervisorView.as_view(), name='test-supervisor'),
     # path('response-rules/', views.ResponseRulesView.as_view(), name='response-rules'),
     # path('response-analytics/', views.ResponseAnalyticsView.as_view(), name='response-analytics'),
 ]

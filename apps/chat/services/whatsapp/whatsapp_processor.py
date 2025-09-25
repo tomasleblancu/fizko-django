@@ -9,7 +9,7 @@ from ...models import (
     WhatsAppConfig, WhatsAppConversation, WhatsAppMessage, WebhookEvent
 )
 from .kapso_service import KapsoAPIService
-from ..agents.agent_manager import agent_manager, MessageContext
+from ..langchain.supervisor import multi_agent_system
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,7 @@ class WhatsAppProcessor:
     """
 
     def __init__(self):
-        self.agent_manager = agent_manager
-        # Inicializar agentes si no se ha hecho
-        if not self.agent_manager.is_initialized:
-            self.agent_manager.initialize_default_agents()
+        pass  # Ya no necesitamos inicializar el manager antiguo
 
     def process_webhook(self, payload_data: Dict, signature: str, idempotency_key: str = None) -> Dict:
         """
@@ -192,28 +189,54 @@ class WhatsAppProcessor:
             config: Configuración de WhatsApp
         """
         try:
-            # Crear contexto para el agente
-            context = MessageContext(
-                message_content=message.content,
-                sender_id=message.conversation.phone_number,
-                conversation_id=message.conversation.conversation_id,
-                company_id=str(config.company.id),
-                company_info={
-                    'name': config.company.name,
-                    'id': config.company.id
-                },
-                sender_info={
+            # VALIDACIÓN: Verificar si el usuario existe por número de teléfono
+            user_phone = message.conversation.phone_number
+            # Normalizar el número (remover +, espacios, etc.)
+            normalized_phone = user_phone.replace('+', '').replace(' ', '').replace('-', '')
+
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+
+            try:
+                # Buscar usuario por teléfono
+                user = User.objects.get(phone=normalized_phone)
+                user_id = user.id
+                logger.info(f"✅ Usuario encontrado: {user.email} para teléfono {user_phone}")
+            except User.DoesNotExist:
+                # Usuario no existe - enviar mensaje de registro
+                logger.info(f"❌ Usuario no encontrado para teléfono {user_phone}")
+                registration_message = (
+                    "¡Hola! Para poder ayudarte, necesitas registrarte en nuestra plataforma.\n\n"
+                    "👤 Regístrate aquí: http://localhost:8080/auth\n\n"
+                    "Una vez que te registres con este número de teléfono, podrás acceder a todas "
+                    "las funciones de Fizko y recibir asistencia personalizada."
+                )
+                self._send_registration_message(message, registration_message, config)
+                return
+
+            # Usar el nuevo sistema multi-agente con supervisor directamente
+            metadata = {
+                'user_id': user_id,  # Ahora tenemos el user_id real
+                'company_id': config.company.id,
+                'conversation_id': message.conversation.conversation_id,
+                'sender_info': {
                     'name': message.conversation.contact_name or 'Cliente',
                     'phone': message.conversation.phone_number
                 },
-                conversation_metadata=message.conversation.metadata,
-                message_history=self._get_recent_messages(message.conversation)
+                'company_info': {
+                    'name': config.company.name,
+                    'id': config.company.id
+                },
+                'conversation_metadata': message.conversation.metadata,
+                'message_history': self._get_recent_messages(message.conversation)
+            }
+
+            response_text = multi_agent_system.process(
+                message=message.content,
+                metadata=metadata
             )
 
-            # Obtener respuesta del sistema de agentes
-            agent_response = self.agent_manager.get_response(context)
-
-            if not agent_response:
+            if not response_text or response_text.strip() == "":
                 logger.info(f"📱 No hay respuesta automática para: {message.content[:50]}...")
                 return
 
@@ -226,21 +249,21 @@ class WhatsAppProcessor:
 
             if is_test_mode:
                 # Simular envío en modo test
-                self._simulate_auto_response(message, agent_response, config)
+                self._simulate_auto_response(message, response_text, config)
             else:
                 # Envío real a través de Kapso
-                self._send_auto_response(message, agent_response, config)
+                self._send_auto_response(message, response_text, config)
 
         except Exception as e:
             logger.error(f"❌ Error generando respuesta automática: {e}")
 
-    def _simulate_auto_response(self, message: WhatsAppMessage, agent_response, config: WhatsAppConfig):
+    def _simulate_auto_response(self, message: WhatsAppMessage, response_text: str, config: WhatsAppConfig):
         """
         Simula el envío de respuesta automática en modo test
 
         Args:
             message: Mensaje original
-            agent_response: Respuesta del agente
+            response_text: Respuesta del sistema multi-agente
             config: Configuración de WhatsApp
         """
         auto_response_message = WhatsAppMessage.objects.create(
@@ -249,29 +272,28 @@ class WhatsAppProcessor:
             company=config.company,
             message_type='text',
             direction='outbound',
-            content=agent_response.message,
+            content=response_text,
             status='sent',
             processing_status='processed',
             is_auto_response=True,
             triggered_by=message,
             whatsapp_message_id=f"test_response_{uuid.uuid4()}",
             metadata={
-                'agent_name': agent_response.agent_name,
-                'confidence': agent_response.confidence,
+                'system': 'multi_agent_supervisor',
                 'test_mode': True
             }
         )
 
-        logger.info(f"🧪 TEST MODE - Auto-response simulada: {agent_response.message[:50]}...")
-        logger.info(f"🤖 Agente usado: {agent_response.agent_name} (confianza: {agent_response.confidence:.2f})")
+        logger.info(f"🧪 TEST MODE - Auto-response simulada: {response_text[:50]}...")
+        logger.info(f"🤖 Sistema usado: multi_agent_supervisor")
 
-    def _send_auto_response(self, message: WhatsAppMessage, agent_response, config: WhatsAppConfig):
+    def _send_auto_response(self, message: WhatsAppMessage, response_text: str, config: WhatsAppConfig):
         """
         Envía respuesta automática real a través de Kapso
 
         Args:
             message: Mensaje original
-            agent_response: Respuesta del agente
+            response_text: Respuesta del sistema multi-agente
             config: Configuración de WhatsApp
         """
         api_service = KapsoAPIService(config.api_token)
@@ -283,21 +305,20 @@ class WhatsAppProcessor:
             company=config.company,
             message_type='text',
             direction='outbound',
-            content=agent_response.message,
+            content=response_text,
             status='pending',
             processing_status='processing',
             is_auto_response=True,
             triggered_by=message,
             metadata={
-                'agent_name': agent_response.agent_name,
-                'confidence': agent_response.confidence
+                'system': 'multi_agent_supervisor'
             }
         )
 
         # Enviar a través de Kapso
         result = api_service.send_text_message(
             phone_number=message.conversation.phone_number,
-            message=agent_response.message,
+            message=response_text,
             conversation_id=message.conversation.conversation_id
         )
 
@@ -306,8 +327,8 @@ class WhatsAppProcessor:
             auto_response_message.status = 'sent'
             auto_response_message.processing_status = 'processed'
             auto_response_message.whatsapp_message_id = result.get('id', '')
-            logger.info(f"✅ Auto-response enviada: {agent_response.message[:50]}...")
-            logger.info(f"🤖 Agente: {agent_response.agent_name} (confianza: {agent_response.confidence:.2f})")
+            logger.info(f"✅ Auto-response enviada: {response_text[:50]}...")
+            logger.info(f"🤖 Sistema usado: multi_agent_supervisor")
         else:
             auto_response_message.status = 'failed'
             auto_response_message.processing_status = 'failed'
@@ -516,3 +537,61 @@ class WhatsAppProcessor:
         except Exception as e:
             logger.error(f"Error creando mensaje: {e}")
             return None
+
+    def _send_registration_message(self, message: WhatsAppMessage, registration_text: str, config: WhatsAppConfig):
+        """
+        Envía mensaje de registro cuando el usuario no está registrado
+
+        Args:
+            message: Mensaje original
+            registration_text: Texto del mensaje de registro
+            config: Configuración de WhatsApp
+        """
+        try:
+            # Crear registro del mensaje de registro
+            registration_message = WhatsAppMessage.objects.create(
+                message_id=str(uuid.uuid4()),
+                conversation=message.conversation,
+                company=config.company,
+                message_type='text',
+                direction='outbound',
+                content=registration_text,
+                status='pending',
+                processing_status='processing',
+                is_auto_response=True,
+                triggered_by=message,
+                metadata={
+                    'system': 'registration_validator',
+                    'registration_required': True
+                }
+            )
+
+            # Enviar a través de Kapso
+            api_service = KapsoAPIService(config.api_token)
+            result = api_service.send_text_message(
+                phone_number=message.conversation.phone_number,
+                message=registration_text,
+                conversation_id=message.conversation.conversation_id
+            )
+
+            if result.get('success'):
+                registration_message.status = 'sent'
+                registration_message.processing_status = 'processed'
+                logger.info(f"📱 Mensaje de registro enviado exitosamente a {message.conversation.phone_number}")
+            else:
+                registration_message.status = 'failed'
+                registration_message.processing_status = 'failed'
+                registration_message.error_message = result.get('error', 'Unknown error')
+                logger.error(f"❌ Error enviando mensaje de registro: {result.get('error')}")
+
+            registration_message.save()
+
+        except Exception as e:
+            logger.error(f"❌ Error enviando mensaje de registro: {e}")
+            try:
+                registration_message.status = 'failed'
+                registration_message.processing_status = 'failed'
+                registration_message.error_message = str(e)
+                registration_message.save()
+            except:
+                pass

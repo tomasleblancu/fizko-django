@@ -38,8 +38,10 @@ class User(AbstractUser):
     Modelo de usuario personalizado
     """
     email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=20, blank=True)
-    is_verified = models.BooleanField(default=False)
+    phone = models.CharField(max_length=15, blank=False, help_text="Número completo con prefijo país sin +. Ej: 56912345678")
+    is_verified = models.BooleanField(default=False)  # Legacy field - True only when both email and phone are verified
+    email_verified = models.BooleanField(default=False)
+    phone_verified = models.BooleanField(default=False)
     
     objects = UserManager()
     
@@ -53,6 +55,16 @@ class User(AbstractUser):
         
     def __str__(self):
         return self.email
+
+    def save(self, *args, **kwargs):
+        """Override save to update is_verified based on email_verified and phone_verified"""
+        self.is_verified = self.email_verified and self.phone_verified
+        super().save(*args, **kwargs)
+
+    @property
+    def is_fully_verified(self):
+        """Check if both email and phone are verified"""
+        return self.email_verified and self.phone_verified
 
 
 class UserProfile(TimeStampedModel):
@@ -108,3 +120,92 @@ class UserRole(TimeStampedModel):
         
     def __str__(self):
         return f"{self.user.email} - {self.role.name} at {self.company.name}"
+
+
+class VerificationCode(TimeStampedModel):
+    """
+    Códigos de verificación para email y teléfono
+    """
+    VERIFICATION_TYPES = [
+        ('email', 'Email'),
+        ('phone', 'Phone'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='verification_codes')
+    verification_type = models.CharField(max_length=10, choices=VERIFICATION_TYPES)
+    code = models.CharField(max_length=6)
+    is_used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    attempts = models.IntegerField(default=0)
+    last_resent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'verification_codes'
+        verbose_name = 'Verification Code'
+        verbose_name_plural = 'Verification Codes'
+        # Removed unique_together to allow multiple codes per user/type
+        indexes = [
+            models.Index(fields=['user', 'verification_type', 'is_used']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.verification_type} - {self.code}"
+
+    @property
+    def is_expired(self):
+        """Check if the code has expired"""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+
+    @property
+    def is_valid(self):
+        """Check if the code is valid (not used, not expired)"""
+        return not self.is_used and not self.is_expired
+
+    def mark_as_used(self):
+        """Mark the code as used"""
+        self.is_used = True
+        self.save(update_fields=['is_used'])
+
+    @classmethod
+    def generate_code(cls):
+        """Generate a random 6-digit verification code"""
+        import random
+        return f"{random.randint(100000, 999999)}"
+
+    @classmethod
+    def create_verification_code(cls, user, verification_type):
+        """Create a new verification code for user"""
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Deactivate existing codes for this user and type
+            cls.objects.filter(
+                user=user,
+                verification_type=verification_type,
+                is_used=False
+            ).update(is_used=True)
+
+            # Create new code
+            code = cls.generate_code()
+            expires_at = timezone.now() + timedelta(minutes=15)  # Code expires in 15 minutes
+
+            return cls.objects.create(
+                user=user,
+                verification_type=verification_type,
+                code=code,
+                expires_at=expires_at
+            )
+
+    def can_resend(self):
+        """Check if code can be resent (5 minute cooldown)"""
+        if not self.last_resent_at:
+            return True
+
+        from django.utils import timezone
+        from datetime import timedelta
+
+        return timezone.now() > self.last_resent_at + timedelta(minutes=5)

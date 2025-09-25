@@ -6,7 +6,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from .models import User, UserProfile, Role, UserRole
+from .models import User, UserProfile, Role, UserRole, VerificationCode
 from apps.core.validators import validate_phone_number
 
 
@@ -16,20 +16,21 @@ class UserSerializer(serializers.ModelSerializer):
     """
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
-    phone = serializers.CharField(validators=[validate_phone_number], required=False, allow_blank=True)
+    phone = serializers.CharField(validators=[validate_phone_number], required=True, allow_blank=False)
     
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'email', 'first_name', 'last_name', 
-            'phone', 'is_verified', 'is_active', 'date_joined',
-            'password', 'password_confirm'
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'phone', 'is_verified', 'email_verified', 'phone_verified',
+            'is_active', 'date_joined', 'password', 'password_confirm'
         ]
-        read_only_fields = ['id', 'date_joined', 'is_verified']
+        read_only_fields = ['id', 'date_joined', 'is_verified', 'email_verified', 'phone_verified']
         extra_kwargs = {
             'email': {'required': True},
             'first_name': {'required': True},
             'last_name': {'required': True},
+            'phone': {'required': True},
         }
     
     def validate(self, attrs):
@@ -280,6 +281,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 'first_name': self.user.first_name,
                 'last_name': self.user.last_name,
                 'is_verified': self.user.is_verified,
+                'email_verified': self.user.email_verified,
+                'phone_verified': self.user.phone_verified,
+                'phone': getattr(self.user, 'phone', ''),
             }
         })
         
@@ -292,14 +296,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     """
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
-    
+    phone = serializers.CharField(validators=[validate_phone_number], required=True, allow_blank=False)
+
     class Meta:
         model = User
-        fields = ['email', 'first_name', 'last_name', 'password', 'password_confirm']
+        fields = ['email', 'first_name', 'last_name', 'phone', 'password', 'password_confirm']
         extra_kwargs = {
             'email': {'required': True},
             'first_name': {'required': True},
             'last_name': {'required': True},
+            'phone': {'required': True},
         }
     
     def validate(self, attrs):
@@ -341,3 +347,114 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['first_name', 'last_name', 'phone']
+
+
+class VerificationCodeSerializer(serializers.ModelSerializer):
+    """
+    Serializer for verification codes
+    """
+    class Meta:
+        model = VerificationCode
+        fields = ['id', 'verification_type', 'expires_at', 'attempts', 'last_resent_at', 'created_at']
+        read_only_fields = ['id', 'expires_at', 'attempts', 'last_resent_at', 'created_at']
+
+
+class SendVerificationCodeSerializer(serializers.Serializer):
+    """
+    Serializer for sending verification codes
+    """
+    verification_type = serializers.ChoiceField(choices=VerificationCode.VERIFICATION_TYPES)
+
+    def validate_verification_type(self, value):
+        """Validate that the user needs this verification"""
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("Usuario no encontrado")
+
+        if value == 'email' and user.email_verified:
+            raise serializers.ValidationError("El email ya está verificado")
+        elif value == 'phone' and user.phone_verified:
+            raise serializers.ValidationError("El teléfono ya está verificado")
+
+        return value
+
+
+class VerifyCodeSerializer(serializers.Serializer):
+    """
+    Serializer for verifying codes
+    """
+    verification_type = serializers.ChoiceField(choices=VerificationCode.VERIFICATION_TYPES)
+    code = serializers.CharField(max_length=6, min_length=6)
+
+    def validate(self, attrs):
+        """Validate the verification code"""
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("Usuario no encontrado")
+
+        verification_type = attrs['verification_type']
+        code = attrs['code']
+
+        # Find valid verification code
+        verification_code = VerificationCode.objects.filter(
+            user=user,
+            verification_type=verification_type,
+            code=code,
+            is_used=False
+        ).first()
+
+        if not verification_code:
+            raise serializers.ValidationError({
+                'code': 'Código de verificación inválido'
+            })
+
+        if verification_code.is_expired:
+            raise serializers.ValidationError({
+                'code': 'El código ha expirado. Solicita uno nuevo.'
+            })
+
+        # Increment attempts
+        verification_code.attempts += 1
+        verification_code.save(update_fields=['attempts'])
+
+        # Too many attempts
+        if verification_code.attempts > 5:
+            verification_code.mark_as_used()
+            raise serializers.ValidationError({
+                'code': 'Demasiados intentos. Solicita un nuevo código.'
+            })
+
+        attrs['verification_code'] = verification_code
+        return attrs
+
+
+class ResendVerificationCodeSerializer(serializers.Serializer):
+    """
+    Serializer for resending verification codes
+    """
+    verification_type = serializers.ChoiceField(choices=VerificationCode.VERIFICATION_TYPES)
+
+    def validate_verification_type(self, value):
+        """Validate that code can be resent"""
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("Usuario no encontrado")
+
+        # Check if already verified
+        if value == 'email' and user.email_verified:
+            raise serializers.ValidationError("El email ya está verificado")
+        elif value == 'phone' and user.phone_verified:
+            raise serializers.ValidationError("El teléfono ya está verificado")
+
+        # Check cooldown period
+        latest_code = VerificationCode.objects.filter(
+            user=user,
+            verification_type=value
+        ).order_by('-created_at').first()
+
+        if latest_code and not latest_code.can_resend():
+            raise serializers.ValidationError(
+                "Debes esperar 5 minutos antes de solicitar un nuevo código"
+            )
+
+        return value

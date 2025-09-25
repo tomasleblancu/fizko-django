@@ -168,27 +168,40 @@ def validate_email_list(value):
 
 def validate_phone_number(value):
     """
-    Validates Chilean phone number format
+    Validates and normalizes Chilean phone number format.
+    Returns normalized format without + prefix.
     """
     if not value:
         return value
-        
-    # Chilean phone formats: +56XXXXXXXXX, 56XXXXXXXXX, 09XXXXXXXX, 2XXXXXXXX
+
+    # Clean input
+    phone_clean = str(value).strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+
+    # Remove + prefix if present
+    if phone_clean.startswith('+'):
+        phone_clean = phone_clean[1:]
+
+    # Chilean phone patterns and their normalized forms
     phone_patterns = [
-        r'^\+56[0-9]{8,9}$',  # +56 followed by 8-9 digits
-        r'^56[0-9]{8,9}$',    # 56 followed by 8-9 digits
-        r'^09[0-9]{8}$',      # Mobile: 09 + 8 digits
-        r'^2[0-9]{7,8}$',     # Santiago landline: 2 + 7-8 digits
-        r'^[3-7][0-9]{7}$',   # Regional landlines
+        (r'^56[0-9]{8,9}$', lambda x: x),  # Already correct format: 56XXXXXXXXX
+        (r'^09[0-9]{8}$', lambda x: f"569{x[2:]}"),  # Mobile: 09XXXXXXXX -> 569XXXXXXXX
+        (r'^2[0-9]{7,8}$', lambda x: f"562{x[1:]}"),  # Santiago landline: 2XXXXXXX -> 562XXXXXXX
+        (r'^[3-7][0-9]{7}$', lambda x: f"56{x}"),  # Regional landlines: XXXXXXX -> 56XXXXXXX
+        (r'^9[0-9]{8}$', lambda x: f"56{x}"),  # Mobile without 0: 9XXXXXXXX -> 569XXXXXXXX
     ]
-    
-    phone_clean = str(value).strip().replace(" ", "").replace("-", "")
-    
-    if not any(re.match(pattern, phone_clean) for pattern in phone_patterns):
-        raise serializers.ValidationError(
-            "Formato de teléfono inválido para Chile"
-        )
-    
+
+    # Try to match and normalize
+    for pattern, normalizer in phone_patterns:
+        if re.match(pattern, phone_clean):
+            normalized = normalizer(phone_clean)
+            # Final validation: must be 56 + 8-9 digits
+            if re.match(r'^56[0-9]{8,9}$', normalized):
+                return normalized
+
+    raise serializers.ValidationError(
+        "Formato de teléfono inválido. Use formato chileno: +56 9 XXXX XXXX o equivalente"
+    )
+
     return value
 
 

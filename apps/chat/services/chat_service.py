@@ -4,7 +4,7 @@ import logging
 
 from ..interfaces.base.chat_interface import ChatInterface
 from ..interfaces.whatsapp.whatsapp_interface import WhatsAppInterface
-from .agents.agent_manager import agent_manager
+from .langchain.supervisor import multi_agent_system
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class ChatService:
 
     def __init__(self):
         self.registry = ChatServiceRegistry()
-        self.agent_manager = agent_manager
+        # El sistema multi-agente supervisor maneja automáticamente el enrutamiento
 
     def send_message(self, service_type: str, recipient: str, message: str,
                     config_id: str = None, **kwargs) -> Dict:
@@ -298,17 +298,25 @@ class ChatService:
             Dict con información de la prueba
         """
         try:
-            result = self.agent_manager.test_response(
-                message_content=message_content,
-                company_info=company_info,
-                sender_info=sender_info
+            # Usar el nuevo sistema multi-agente con supervisor
+            metadata = {
+                'company_info': company_info or {},
+                'sender_info': sender_info or {}
+            }
+
+            response = multi_agent_system.process(
+                message=message_content,
+                metadata=metadata
             )
 
-            result.update({
+            result = {
+                'message': message_content,
+                'response': response,
                 'service_type': service_type,
                 'tested_at': timezone.now().isoformat(),
-                'agent_manager_stats': self.agent_manager.get_manager_stats()
-            })
+                'system': 'multi_agent_supervisor',
+                'success': True
+            }
 
             return result
 
@@ -357,8 +365,12 @@ class ChatService:
                     }
                 }
 
-                # Agregar estadísticas de agentes
-                analytics['agents'] = self.agent_manager.get_manager_stats()
+                # Agregar información del sistema supervisor
+                analytics['system'] = {
+                    'type': 'multi_agent_supervisor',
+                    'agents_available': ['tax', 'dte', 'sii', 'general'],
+                    'description': 'Sistema supervisor multi-agente con LangGraph'
+                }
 
                 return analytics
 

@@ -399,10 +399,7 @@ SII_USE_REAL_SERVICE = config('SII_USE_REAL_SERVICE', default=IS_RAILWAY, cast=b
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 
 # Email Configuration
-if IS_RAILWAY:
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-else:
-    EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
 
 EMAIL_HOST = config('EMAIL_HOST', default='localhost')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
@@ -466,6 +463,7 @@ LOGGING = {
 KAPSO_API_BASE_URL = config('KAPSO_API_BASE_URL', default='https://app.kapso.ai/api/v1')
 KAPSO_API_TOKEN = config('KAPSO_API_TOKEN', default='')
 WHATSAPP_WEBHOOK_SECRET = config('WHATSAPP_WEBHOOK_SECRET', default='your-webhook-secret-here')
+WHATSAPP_CONFIG_ID = config('WHATSAPP_CONFIG_ID', default='')
 
 # WhatsApp Business Hours (default for new configs)
 WHATSAPP_DEFAULT_BUSINESS_HOURS_START = config('WHATSAPP_BUSINESS_HOURS_START', default='09:00')

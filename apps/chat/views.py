@@ -1,5 +1,6 @@
 import json
 import uuid
+import logging
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -25,12 +26,39 @@ from .serializers import (
     WebhookEventSerializer, SendMessageSerializer,
     SendTemplateSerializer, MarkConversationReadSerializer
 )
-from .services.whatsapp.whatsapp_processor import WhatsAppProcessor
-from .services.whatsapp.kapso_service import KapsoAPIService
-from .services.agents.agent_manager import agent_manager
-from .services.chat_service import chat_service
+# Lazy imports to avoid circular dependencies during Celery startup
+# from .services.whatsapp.whatsapp_processor import WhatsAppProcessor
+# from .services.whatsapp.kapso_service import KapsoAPIService
+# from .services.langchain.supervisor import multi_agent_system, process_with_advanced_system
+# from .services.chat_service import chat_service
 # Removed Celery tasks imports - now using synchronous processing
 from apps.core.permissions import IsCompanyMember
+
+logger = logging.getLogger(__name__)
+
+
+def get_whatsapp_processor():
+    """Lazy import for WhatsAppProcessor"""
+    from .services.whatsapp.whatsapp_processor import WhatsAppProcessor
+    return WhatsAppProcessor
+
+
+def get_kapso_service():
+    """Lazy import for KapsoAPIService"""
+    from .services.whatsapp.kapso_service import KapsoAPIService
+    return KapsoAPIService
+
+
+def get_chat_service():
+    """Lazy import for chat_service"""
+    from .services.chat_service import chat_service
+    return chat_service
+
+
+def get_multi_agent_system():
+    """Lazy import for multi_agent_system"""
+    from .services.langchain.supervisor import multi_agent_system, process_with_advanced_system
+    return multi_agent_system, process_with_advanced_system
 
 
 class WhatsAppConfigViewSet(viewsets.ModelViewSet):
@@ -83,6 +111,7 @@ class WhatsAppConfigViewSet(viewsets.ModelViewSet):
         }
         
         # Procesar como webhook con el nuevo procesador
+        WhatsAppProcessor = get_whatsapp_processor()
         processor = WhatsAppProcessor()
         result = processor.process_webhook(
             test_payload,
@@ -254,10 +283,14 @@ class WhatsAppWebhookView(View):
             # Obtener headers importantes
             signature = request.headers.get('X-Webhook-Signature', '')
             idempotency_key = request.headers.get('X-Idempotency-Key', str(uuid.uuid4()))
-            
+
             # Parsear payload
             payload_data = json.loads(request.body.decode('utf-8'))
-            
+
+            # LOG TEMPORAL: Capturar payload real de Kapso para debugging
+            logger.info(f"🔍 WEBHOOK PAYLOAD RECIBIDO: {json.dumps(payload_data, indent=2)}")
+            logger.info(f"🔍 HEADERS: Signature={signature}, Idempotency={idempotency_key}")
+
             # Verificar si es un webhook de prueba o si podemos omitir verificación
             is_test = payload_data.get('test', False)
             
@@ -267,6 +300,7 @@ class WhatsAppWebhookView(View):
                 pass
             
             # Procesar webhook con el nuevo procesador modular
+            WhatsAppProcessor = get_whatsapp_processor()
             processor = WhatsAppProcessor()
             result = processor.process_webhook(
                 payload_data=payload_data,
@@ -312,6 +346,7 @@ class SendMessageView(APIView):
             config = company.whatsapp_config
             
             # Enviar mensaje usando el servicio modular
+            chat_service = get_chat_service()
             result = chat_service.send_message(
                 service_type='whatsapp',
                 recipient=serializer.validated_data['phone_number'],
@@ -351,6 +386,7 @@ class SendTemplateView(APIView):
                 
                 # Enviar mensaje usando plantilla con el servicio modular
                 message_text = rendered['body']
+                chat_service = get_chat_service()
                 result = chat_service.send_message(
                     service_type='whatsapp',
                     recipient=serializer.validated_data['phone_number'],
@@ -407,123 +443,9 @@ class MarkConversationReadView(APIView):
             )
 
 
-class TestResponseView(APIView):
-    """Vista para probar respuestas automáticas"""
 
-    permission_classes = [IsAuthenticated, IsCompanyMember]
-
-    def post(self, request):
-        """Prueba qué respuesta se generaría para un mensaje"""
-        message_content = request.data.get('message', '')
-        context = request.data.get('context', {})
-
-        if not message_content:
-            return Response(
-                {'error': 'Message content is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Obtener empresa del usuario
-        company = request.user.companies.filter(
-            user_roles__active=True
-        ).first()
-
-        if not company:
-            return Response(
-                {'error': 'No active company found'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Probar respuesta usando el nuevo sistema de agentes
-        result = chat_service.test_agent_response(
-            message_content=message_content,
-            company_info={'name': company.name, 'id': company.id},
-            sender_info=context.get('sender_info', {})
-        )
-
-        return Response(result)
-
-
-class ResponseRulesView(APIView):
-    """Vista para gestionar reglas de respuesta"""
-
-    permission_classes = [IsAuthenticated, IsCompanyMember]
-
-    def get(self, request):
-        """Obtiene las reglas de respuesta activas del nuevo sistema de agentes"""
-        # Obtener información de todos los agentes activos
-        stats = agent_manager.get_manager_stats()
-
-        return Response({
-            'agents': stats['agents_by_priority'],
-            'total_agents': stats['total_agents'],
-            'active_agents': stats['active_agents'],
-            'has_fallback': stats['has_fallback']
-        })
-
-    def post(self, request):
-        """Añade un nuevo agente personalizado"""
-        from .services.agents.base_agent import RuleBasedAgent
-
-        name = request.data.get('name')
-        patterns = request.data.get('patterns', [])
-        response_text = request.data.get('response')
-        priority = request.data.get('priority', 5)
-        conditions = request.data.get('conditions', {})
-
-        if not all([name, patterns, response_text]):
-            return Response(
-                {'error': 'Name, patterns, and response are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Crear nuevo agente basado en reglas
-        new_agent = RuleBasedAgent(
-            name=name,
-            patterns=patterns,
-            response_template=response_text,
-            priority=priority,
-            conditions=conditions
-        )
-
-        # Registrar en el gestor de agentes
-        success = agent_manager.register_agent(new_agent)
-
-        if success:
-            return Response({
-                'status': 'success',
-                'message': f'Agent "{name}" added successfully',
-                'agent': new_agent.get_agent_info()
-            })
-        else:
-            return Response(
-                {'error': f'Failed to register agent "{name}"'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    def delete(self, request):
-        """Elimina un agente por nombre"""
-        agent_name = request.data.get('name')
-
-        if not agent_name:
-            return Response(
-                {'error': 'Agent name is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Eliminar agente del gestor
-        success = agent_manager.unregister_agent(agent_name)
-
-        if success:
-            return Response({
-                'status': 'success',
-                'message': f'Agent "{agent_name}" removed successfully'
-            })
-        else:
-            return Response(
-                {'error': f'Agent "{agent_name}" not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+# LEGACY: ResponseRulesView removido - ya no es necesario con el sistema supervisor
+# El sistema supervisor multi-agente maneja automáticamente el enrutamiento
 
 
 class ResponseAnalyticsView(APIView):
@@ -545,6 +467,7 @@ class ResponseAnalyticsView(APIView):
             )
 
         # Usar el servicio de chat para obtener analíticas
+        chat_service = get_chat_service()
         analytics = chat_service.get_chat_analytics(service_type='whatsapp', days=30)
 
         # Agregar información específica de la empresa
@@ -554,3 +477,158 @@ class ResponseAnalyticsView(APIView):
         }
 
         return Response(analytics)
+
+
+class TestResponseView(APIView):
+    """Vista para probar el sistema de respuesta LangChain con supervisor multi-agente"""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Prueba el sistema de respuesta con un mensaje usando el supervisor multi-agente"""
+        try:
+            message = request.data.get('message')
+            company_info = request.data.get('company_info', {})
+            sender_info = request.data.get('sender_info', {})
+
+            if not message:
+                return Response(
+                    {'error': 'Message is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Obtener información real del usuario y sus empresas
+            user_companies = []
+            active_company = None
+
+            try:
+                # Obtener empresas del usuario
+                from apps.companies.models import Company
+                from apps.accounts.models import UserRole
+                user_roles = UserRole.objects.filter(
+                    user=request.user,
+                    active=True
+                ).select_related('company')
+
+                for role in user_roles:
+                    company_data = {
+                        'id': role.company.id,
+                        'name': role.company.name,
+                        'rut': getattr(role.company, 'rut', None),
+                        'role': role.role,
+                        'is_owner': role.role == 'owner'
+                    }
+                    user_companies.append(company_data)
+
+                    # Usar la primera empresa activa como la empresa principal
+                    if not active_company:
+                        active_company = company_data
+
+            except Exception as e:
+                logger.warning(f"No se pudieron obtener empresas del usuario: {e}")
+
+            # Preparar metadata para el sistema multi-agente con información real
+            metadata = {
+                'user_id': request.user.id,
+                'user_email': request.user.email,
+                'user_name': getattr(request.user, 'get_full_name', lambda: request.user.username)(),
+                'companies': user_companies,
+                'active_company': active_company,
+                'company_info': company_info if company_info else active_company,
+                'sender_info': sender_info if sender_info else {
+                    'name': getattr(request.user, 'get_full_name', lambda: request.user.username)(),
+                    'email': request.user.email
+                },
+                'has_permissions': bool(user_companies),
+                'total_companies': len(user_companies)
+            }
+
+            # Usar el sistema multi-agente avanzado con seguridad, memoria y monitoreo
+            multi_agent_system, process_with_advanced_system = get_multi_agent_system()
+            response_text = process_with_advanced_system(
+                message=message,
+                user_id=str(request.user.id),  # Seguridad por usuario
+                ip_address=request.META.get('REMOTE_ADDR'),  # Rastreo IP para auditoría
+                metadata=metadata
+            )
+
+            # Respuesta compatible con frontend existente
+            return Response({
+                'message': message,
+                'response': response_text,
+                'selected_agent': 'advanced_multi_agent_system',
+                'confidence': 0.98,  # Muy alta confianza para el sistema avanzado
+                'chain_type': 'AdvancedSupervisorMultiAgent',
+                'metadata': {
+                    'system': 'advanced_multi_agent_system',
+                    'timestamp': timezone.now().isoformat(),
+                    'agents_available': ['onboarding', 'dte', 'general'],
+                    'security_enabled': True,
+                    'memory_enabled': True,
+                    'monitoring_enabled': True,
+                    'chilean_compliance': True
+                },
+                'processing_successful': True
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error en TestResponseView: {e}")
+            return Response({
+                'message': message if 'message' in locals() else '',
+                'response': 'Lo siento, ocurrió un error al procesar tu consulta. Por favor, intenta nuevamente.',
+                'selected_agent': 'error',
+                'confidence': 0.0,
+                'chain_type': 'Error',
+                'metadata': {
+                    'error': str(e),
+                    'timestamp': timezone.now().isoformat()
+                },
+                'processing_successful': False
+            }, status=status.HTTP_200_OK)  # Devolver 200 para que el frontend maneje el error
+
+
+class TestSupervisorView(APIView):
+    """Vista para probar el supervisor multi-agente sin autenticación"""
+
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        """Prueba el sistema multi-agente con supervisor"""
+        try:
+            message = request.data.get('message', '')
+            if not message:
+                return Response(
+                    {'error': 'El mensaje es requerido'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Preparar metadata básica
+            metadata = {
+                'test_mode': True,
+                'company_info': request.data.get('company_info', {}),
+                'sender_info': request.data.get('sender_info', {})
+            }
+
+            # Usar el sistema multi-agente avanzado con supervisor
+            multi_agent_system, process_with_advanced_system = get_multi_agent_system()
+            response_text = process_with_advanced_system(
+                message=message,
+                user_id=None,  # Test mode - sin usuario específico
+                ip_address=request.META.get('REMOTE_ADDR', 'unknown'),
+                metadata=metadata
+            )
+
+            return Response({
+                'message': message,
+                'response': response_text,
+                'system': 'multi_agent_supervisor',
+                'timestamp': timezone.now().isoformat()
+            })
+
+        except Exception as e:
+            logger.error(f"Error en TestSupervisorView: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

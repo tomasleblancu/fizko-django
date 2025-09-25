@@ -64,8 +64,8 @@ class Document(TimeStampedModel):
     
     # Relación con Company (empresa propietaria del documento)
     company = models.ForeignKey(
-        'companies.Company', 
-        on_delete=models.PROTECT,
+        'companies.Company',
+        on_delete=models.CASCADE,  # Borrar documentos cuando se borre la empresa
         related_name='documents',
         null=True,  # Temporalmente nullable para migración
         blank=True,

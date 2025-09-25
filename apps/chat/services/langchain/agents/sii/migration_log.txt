@@ -1,0 +1,1 @@
+Migración iniciada: 2025-09-24T22:50:50.756452\nBackup creado: agent.py\nBackup creado: tools.py\nBackup creado: faq_retriever.py\n__init__.py actualizado\nArchivo de configuración creado\nScript de reversión creado\nMigración completada: 2025-09-24T22:50:50.759986

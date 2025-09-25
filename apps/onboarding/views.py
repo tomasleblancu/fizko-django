@@ -57,22 +57,41 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         current_step_obj = user_onboarding.filter(
             Q(status='in_progress') | Q(status='not_started')
         ).first()
-        
+
+        # Verificar si existe un registro de finalización
+        finalized_step = user_onboarding.filter(
+            step__name='finalized'
+        ).first()
+
         current_step = current_step_obj.step.step_order if current_step_obj else 1
-        is_completed = completed_steps == total_steps
+        # El onboarding solo está completado si fue finalizado explícitamente
+        is_completed = finalized_step is not None and finalized_step.status == 'completed'
         
         # Calcular qué pasos están completados
         completed_step_numbers = list(
             user_onboarding.filter(status='completed')
             .values_list('step__step_order', flat=True)
         )
-        
+
+        # Recopilar datos guardados de todos los pasos
+        step_data_collection = {}
+        for user_step in user_onboarding.filter(step_data__isnull=False):
+            if user_step.step_data:
+                step_key = f"step_{user_step.step.step_order}"
+                step_data_collection[step_key] = {
+                    'step_name': user_step.step.name,
+                    'step_order': user_step.step.step_order,
+                    'data': user_step.step_data,
+                    'status': user_step.status,
+                    'completed_at': user_step.completed_at.isoformat() if user_step.completed_at else None
+                }
+
         return Response({
             'user_id': request.user.id,
             'is_completed': is_completed,
             'current_step': current_step,
             'completed_steps': completed_step_numbers,
-            'step_data': {},  # Podemos expandir esto si necesitamos datos específicos
+            'step_data': step_data_collection,
             'total_steps': total_steps,
             'progress_percentage': (completed_steps / total_steps * 100) if total_steps > 0 else 0
         })
@@ -197,6 +216,31 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 # 3. Sincronización histórica completa (todo el historial)
                 historical_sync_result = self._start_complete_historical_sync(company_id)
 
+            # Marcar el onboarding como oficialmente finalizado
+            finalized_step, created = OnboardingStep.objects.get_or_create(
+                name='finalized',
+                defaults={
+                    'title': 'Onboarding Finalizado',
+                    'step_order': 999,
+                    'is_active': False  # No visible en el flujo normal
+                }
+            )
+
+            # Crear registro de finalización para el usuario
+            UserOnboarding.objects.update_or_create(
+                user_email=user_email,
+                step=finalized_step,
+                defaults={
+                    'status': 'completed',
+                    'completed_at': timezone.now(),
+                    'step_data': {
+                        'finalized_at': timezone.now().isoformat(),
+                        'company_created': company_id is not None,
+                        'company_id': company_id
+                    }
+                }
+            )
+
             return Response({
                 'status': 'success',
                 'message': message,
@@ -248,11 +292,11 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             if new_status == 'completed':
                 user_onboarding.completed_at = timezone.now()
                 
-                # SEGURIDAD CRÍTICA: Si es el paso de empresa, verificar credenciales PRIMERO
+                # SEGURIDAD CRÍTICA: Si es el paso de empresa, verificar credenciales SOLAMENTE
                 if step.name == 'company' and step_data:
                     # Verificar credenciales antes de cualquier operación
                     credentials_valid = self._verify_sii_credentials(step_data)
-                    
+
                     if credentials_valid.get('error'):
                         return Response({
                             'error': 'INVALID_CREDENTIALS',
@@ -260,25 +304,14 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                             'details': credentials_valid.get('message'),
                             'step': step.name
                         }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # CREAR EMPRESA INMEDIATAMENTE después de verificar credenciales
-                    company_result = self._create_or_assign_company_from_onboarding(request, step_data)
-                    
-                    if company_result.get('error'):
-                        return Response({
-                            'error': 'COMPANY_CREATION_ERROR',
-                            'message': 'Error creando empresa después de verificar credenciales',
-                            'details': company_result.get('message'),
-                            'company_error': company_result.get('error')
-                        }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # Guardar resultado de creación de empresa
+
+                    # SOLO VERIFICAR - NO crear empresa aquí, eso ocurrirá en finalize()
+                    # Guardar solo el resultado de verificación de credenciales
                     step_data['credential_verification'] = {
                         'status': 'verified',
                         'message': 'Credenciales SII verificadas exitosamente',
                         'verified_at': timezone.now().isoformat()
                     }
-                    step_data['company_creation_result'] = company_result
 
                     
             if step_data:
@@ -1070,36 +1103,54 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
     def needs_onboarding(self, request):
         """
         Verifica si el usuario necesita completar onboarding
+        El onboarding solo está completo cuando fue finalizado explícitamente
         """
         user_email = request.user.email
-        
-        # Obtener pasos activos requeridos
+
+        # Verificar si existe un registro de finalización
+        finalized_step = UserOnboarding.objects.filter(
+            user_email=user_email,
+            step__name='finalized',
+            status='completed'
+        ).first()
+
+        # El onboarding solo está completado si fue finalizado explícitamente
+        is_completed = finalized_step is not None
+        needs_onboarding = not is_completed
+
+        # Obtener información de pasos para debug
         required_steps = OnboardingStep.objects.filter(
-            is_active=True, 
+            is_active=True,
             is_required=True
         ).count()
-        
-        # Obtener pasos completados requeridos
+
         completed_required_steps = UserOnboarding.objects.filter(
             user_email=user_email,
             step__is_active=True,
             step__is_required=True,
             status='completed'
         ).count()
-        
-        needs_onboarding = completed_required_steps < required_steps
-        
+
         # Debug info para troubleshooting
         missing_steps = []
         if needs_onboarding:
+            if not finalized_step:
+                missing_steps.append({
+                    'step_order': 4,
+                    'name': 'finalize',
+                    'title': 'Finalizar onboarding',
+                    'current_status': 'not_started'
+                })
+
+            # También incluir pasos regulares que falten
             all_required_steps = OnboardingStep.objects.filter(
-                is_active=True, 
+                is_active=True,
                 is_required=True
             ).order_by('step_order')
-            
+
             for step in all_required_steps:
                 user_step = UserOnboarding.objects.filter(
-                    user_email=user_email, 
+                    user_email=user_email,
                     step=step
                 ).first()
                 if not user_step or user_step.status != 'completed':
@@ -1109,12 +1160,13 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                         'title': step.title,
                         'current_status': user_step.status if user_step else 'not_started'
                     })
-        
+
         return Response({
             'needs_onboarding': needs_onboarding,
             'required_steps': required_steps,
             'completed_required_steps': completed_required_steps,
-            'missing_steps': missing_steps
+            'missing_steps': missing_steps,
+            'is_finalized': is_completed
         })
 
 

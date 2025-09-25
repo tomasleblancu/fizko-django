@@ -37,7 +37,7 @@ urlpatterns = [
         path('notifications/', include('apps.notifications.urls')),
         path('rates/', include('apps.rates.urls')),
         path('onboarding/', include('apps.onboarding.urls')),
-        # path('chat/', include('apps.chat.urls')),  # TEMP: Deshabilitado
+        path('chat/', include('apps.chat.urls')),
     ])),
     
     # DRF browsable API (for development)
