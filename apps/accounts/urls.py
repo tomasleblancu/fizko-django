@@ -6,7 +6,7 @@ from .views import (
     CustomTokenObtainPairView, UserViewSet, UserProfileViewSet,
     RoleViewSet, UserRoleViewSet, CurrentUserView, debug_user_permissions,
     VerificationView, SendVerificationCodeView, ResendVerificationCodeView,
-    verification_status
+    verification_status, InvitationValidationView
 )
 
 app_name = 'accounts'
@@ -28,6 +28,9 @@ urlpatterns = [
     path('verification/send/', SendVerificationCodeView.as_view(), name='send_verification_code'),
     path('verification/resend/', ResendVerificationCodeView.as_view(), name='resend_verification_code'),
     path('verification/status/', verification_status, name='verification_status'),
+
+    # Invitation endpoints
+    path('invitations/validate/<str:token>/', InvitationValidationView.as_view(), name='validate_invitation'),
 
     # Debug endpoints
     path('debug/permissions/', debug_user_permissions, name='debug_permissions'),

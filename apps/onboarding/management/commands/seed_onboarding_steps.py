@@ -16,7 +16,7 @@ class Command(BaseCommand):
                 'is_active': True,
                 'step_config': {
                     'type': 'form',
-                    'fields': ['first_name', 'last_name', 'phone', 'profession', 'experience'],
+                    'fields': ['first_name', 'last_name', 'profession', 'experience'],
                     'show_progress': True,
                     'allow_skip': False
                 }

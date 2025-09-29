@@ -1,0 +1,220 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Resumen general del sistema de agentes</p>
+{% endblock %}
+
+{% block content %}
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_agents }}</h4>
+                        <p class="card-text">Agentes Totales</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-robot fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ active_agents }}</h4>
+                        <p class="card-text">Agentes Activos</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_tools }}</h4>
+                        <p class="card-text">Herramientas Disponibles</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-tools fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ categories|length }}</h4>
+                        <p class="card-text">Categorías</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-layer-group fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Recent Agents -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Agentes Recientes
+                </h5>
+                <a href="{% url 'chat_admin:agent_list' %}" class="btn btn-sm btn-outline-primary">
+                    Ver Todos
+                </a>
+            </div>
+            <div class="card-body">
+                {% if recent_agents %}
+                    <div class="list-group list-group-flush">
+                        {% for agent in recent_agents %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">
+                                    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="text-decoration-none">
+                                        {{ agent.name }}
+                                    </a>
+                                </h6>
+                                <p class="mb-1 text-muted">{{ agent.get_agent_type_display }}</p>
+                                <small class="text-muted">Creado {{ agent.created_at|timesince }} ago</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-{% if agent.status == 'active' %}success{% elif agent.status == 'testing' %}warning{% else %}secondary{% endif %}">
+                                    {{ agent.get_status_display }}
+                                </span>
+                                <br>
+                                <small class="text-muted">{{ agent.model_name }}</small>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-robot fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No hay agentes configurados</h5>
+                        <p class="text-muted">Crea tu primer agente para comenzar</p>
+                        <a href="{% url 'chat_admin:agent_create' %}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>
+                            Crear Agente
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions & Categories -->
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-bolt me-2"></i>
+                    Acciones Rápidas
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{% url 'chat_admin:agent_create' %}" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>
+                        Nuevo Agente
+                    </a>
+                    <a href="{% url 'chat_admin:tools_library' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-tools me-2"></i>
+                        Ver Herramientas
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tool Categories -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-layer-group me-2"></i>
+                    Categorías de Herramientas
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if categories %}
+                    <div class="list-group list-group-flush">
+                        {% for category in categories %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            <span class="text-capitalize">{{ category }}</span>
+                            <span class="tool-badge">
+                                <i class="fas fa-tools me-1"></i>
+                                Disponible
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No hay categorías disponibles</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Status -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Estado del Sistema
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6 class="text-muted">Sistema de Herramientas</h6>
+                        <p class="mb-1">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Operativo
+                        </p>
+                        <small class="text-muted">{{ total_tools }} herramientas registradas</small>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-muted">Registry de Agentes</h6>
+                        <p class="mb-1">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Funcional
+                        </p>
+                        <small class="text-muted">{{ total_agents }} agentes configurados</small>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-muted">Auto-descubrimiento</h6>
+                        <p class="mb-1">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Activo
+                        </p>
+                        <small class="text-muted">Detectando nuevas herramientas automáticamente</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

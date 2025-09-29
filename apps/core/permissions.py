@@ -35,14 +35,38 @@ class IsCompanyMember(permissions.BasePermission):
             return False
 
         company_id = request.headers.get('X-Company-ID')
-        if not company_id:
+        company_ids_param = request.query_params.get('company_ids')
+
+        if not company_id and not company_ids_param:
             # Check if company_id is in URL or query params
-            company_id = (view.kwargs.get('company_id') or 
-                         request.query_params.get('company_id') or 
+            company_id = (view.kwargs.get('company_id') or
+                         request.query_params.get('company_id') or
                          request.query_params.get('company'))
             if not company_id:
                 return False
 
+        # Handle multiple company IDs
+        if company_ids_param:
+            try:
+                # Parse comma-separated company IDs
+                company_ids = [int(id.strip()) for id in company_ids_param.split(',') if id.strip()]
+                if not company_ids:
+                    return False
+
+                # User must have access to ALL requested companies
+                user_companies = set(
+                    UserRole.objects.filter(
+                        user=request.user,
+                        active=True
+                    ).values_list('company_id', flat=True)
+                )
+
+                requested_companies = set(company_ids)
+                return requested_companies.issubset(user_companies)
+            except (ValueError, TypeError):
+                return False
+
+        # Handle single company ID
         return UserRole.objects.filter(
             user=request.user,
             company_id=company_id,
@@ -118,9 +142,33 @@ class IsCompanyOwner(IsCompanyMember):
             return False
 
         company_id = request.headers.get('X-Company-ID')
+        company_ids_param = request.query_params.get('company_ids')
+
+        # Handle multiple company IDs
+        if company_ids_param:
+            try:
+                company_ids = [int(id.strip()) for id in company_ids_param.split(',') if id.strip()]
+                if not company_ids:
+                    return False
+
+                # User must be owner of ALL requested companies
+                user_owner_companies = set(
+                    UserRole.objects.filter(
+                        user=request.user,
+                        role__name='owner',
+                        active=True
+                    ).values_list('company_id', flat=True)
+                )
+
+                requested_companies = set(company_ids)
+                return requested_companies.issubset(user_owner_companies)
+            except (ValueError, TypeError):
+                return False
+
+        # Handle single company ID
         if not company_id:
-            company_id = (view.kwargs.get('company_id') or 
-                         request.query_params.get('company_id') or 
+            company_id = (view.kwargs.get('company_id') or
+                         request.query_params.get('company_id') or
                          request.query_params.get('company'))
 
         return UserRole.objects.filter(
@@ -161,9 +209,33 @@ class IsCompanyAdmin(IsCompanyMember):
             return False
 
         company_id = request.headers.get('X-Company-ID')
+        company_ids_param = request.query_params.get('company_ids')
+
+        # Handle multiple company IDs
+        if company_ids_param:
+            try:
+                company_ids = [int(id.strip()) for id in company_ids_param.split(',') if id.strip()]
+                if not company_ids:
+                    return False
+
+                # User must be admin/owner of ALL requested companies
+                user_admin_companies = set(
+                    UserRole.objects.filter(
+                        user=request.user,
+                        role__name__in=['owner', 'admin'],
+                        active=True
+                    ).values_list('company_id', flat=True)
+                )
+
+                requested_companies = set(company_ids)
+                return requested_companies.issubset(user_admin_companies)
+            except (ValueError, TypeError):
+                return False
+
+        # Handle single company ID
         if not company_id:
-            company_id = (view.kwargs.get('company_id') or 
-                         request.query_params.get('company_id') or 
+            company_id = (view.kwargs.get('company_id') or
+                         request.query_params.get('company_id') or
                          request.query_params.get('company'))
 
         return UserRole.objects.filter(

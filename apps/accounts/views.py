@@ -9,14 +9,16 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.db import transaction
+from django.utils import timezone
 
-from .models import User, UserProfile, Role, UserRole, VerificationCode
+from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation
 from .serializers import (
     UserSerializer, UserProfileSerializer, RoleSerializer,
     UserRoleSerializer, CustomTokenObtainPairSerializer,
     UserRegistrationSerializer, ChangePasswordSerializer,
     ProfileUpdateSerializer, SendVerificationCodeSerializer,
-    VerifyCodeSerializer, ResendVerificationCodeSerializer
+    VerifyCodeSerializer, ResendVerificationCodeSerializer,
+    InviteToTeamSerializer, InvitationValidationSerializer
 )
 from apps.core.permissions import IsOwnerOrReadOnly, IsCompanyMember
 
@@ -75,26 +77,58 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
+        # Check if user was created with an invitation
+        invitation = getattr(user, '_invitation', None)
+        skip_onboarding = invitation is not None
+
         # Create user profile
-        UserProfile.objects.create(user=user)
+        UserProfile.objects.create(
+            user=user,
+            skip_onboarding=skip_onboarding
+        )
 
-        # Generate verification codes
-        email_code = VerificationCode.create_verification_code(user, 'email')
-        phone_code = VerificationCode.create_verification_code(user, 'phone')
+        # If there's an invitation, accept it
+        invitation_result = None
+        if invitation:
+            try:
+                invitation_result = invitation.accept(user)
+                company_names = ', '.join([c['name'] for c in invitation_result['companies']])
+                invitation_message = f'Te has unido exitosamente a {company_names} como {invitation_result["role"]["name"]}.'
+            except Exception as e:
+                # Log error but don't fail registration
+                invitation_message = f'Se registró tu cuenta pero hubo un error al procesar la invitación: {str(e)}'
+                print(f"Error accepting invitation during registration: {e}")
+        else:
+            invitation_message = None
 
-        # Send verification codes
-        self._send_email_verification(user, email_code.code)
-        self._send_phone_verification(user, phone_code.code)
+        # Note: Verification codes will be generated and sent later when user accesses verification page
+        # This prevents sending codes immediately during registration
 
-        return Response({
+        response_data = {
             'user': UserSerializer(user).data,
-            'message': 'Usuario registrado. Por favor verifica tu email y teléfono.',
-            'next_step': 'verification',
+            'message': 'Usuario registrado exitosamente. Por favor inicia sesión para continuar.',
+            'next_step': 'login',
             'verification_required': {
                 'email': not user.email_verified,
                 'phone': not user.phone_verified
+            },
+            'skip_onboarding': skip_onboarding
+        }
+
+        if invitation_message:
+            response_data['invitation_message'] = invitation_message
+
+        # Include detailed invitation result if available
+        if invitation_result:
+            response_data['invitation_result'] = {
+                'companies': invitation_result['companies'],
+                'role': invitation_result['role'],
+                'total_companies': invitation_result['total_companies'],
+                'new_roles_created': invitation_result['new_roles_created'],
+                'summary': f"Agregado a {invitation_result['total_companies']} empresa(s) como {invitation_result['role']['name']}"
             }
-        }, status=status.HTTP_201_CREATED)
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def _send_email_verification(self, user, code):
         """Send email verification code"""
@@ -134,9 +168,8 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def _send_phone_verification(self, user, code):
         """Send WhatsApp verification code"""
-        from apps.whatsapp.services import WhatsAppService
-
         try:
+            from apps.whatsapp.services import WhatsAppService
             whatsapp_service = WhatsAppService()
             message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
 
@@ -144,6 +177,9 @@ class UserViewSet(viewsets.ModelViewSet):
             phone_formatted = f"+{user.phone}"
 
             whatsapp_service.send_message(phone_formatted, message)
+        except ImportError:
+            # WhatsApp service not available
+            print(f"WhatsApp service not available for phone verification to {user.phone}")
         except Exception as e:
             # Log error but don't fail registration
             print(f"Error sending WhatsApp verification: {e}")
@@ -236,6 +272,149 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def invite_to_team(self, request):
+        """
+        Invite a user to join multiple company teams
+        Only company owners can send invitations
+        """
+        serializer = InviteToTeamSerializer(data=request.data, context={'user': request.user})
+        serializer.is_valid(raise_exception=True)
+
+        # Extract validated data
+        email = serializer.validated_data['email']
+        companies = serializer.validated_data['companies']
+        role = serializer.validated_data['role']
+
+        try:
+            # Create the invitation
+            with transaction.atomic():
+                invitation = TeamInvitation.objects.create(
+                    email=email,
+                    role=role,
+                    invited_by=request.user,
+                    status='pending'
+                )
+                # Asociar todas las empresas usando ManyToMany
+                invitation.companies.set(companies)
+
+            # Send invitation email (optional - could be implemented later)
+            self._send_invitation_email(invitation)
+
+            # Create response with multiple companies
+            company_data = [
+                {
+                    'id': company.id,
+                    'name': company.display_name,
+                    'business_name': company.business_name
+                } for company in companies
+            ]
+
+            company_names = ', '.join([c.display_name for c in companies])
+
+            return Response({
+                'message': f'Invitación enviada exitosamente a {email} para {company_names}',
+                'invitation': {
+                    'id': invitation.id,
+                    'token': str(invitation.token),
+                    'email': invitation.email,
+                    'companies': company_data,
+                    'role': {
+                        'id': role.id,
+                        'name': role.name
+                    },
+                    'expires_at': invitation.expires_at,
+                    'status': invitation.status
+                }
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {'error': f'Error al crear la invitación: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def _send_invitation_email(self, invitation):
+        """Send invitation email to the invited user"""
+        from django.core.mail import send_mail
+        from django.conf import settings
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Create invitation link using configured frontend URL
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')
+        invitation_link = f"{frontend_url}/accept-invitation/{invitation.token}"
+
+        # Format company names with proper grammar
+        companies = list(invitation.companies.all())
+        company_count = len(companies)
+
+        if company_count == 1:
+            # Single company
+            company_text = companies[0].display_name
+            empresas_text = "la empresa"
+        elif company_count == 2:
+            # Two companies: "A y B"
+            company_text = f"{companies[0].display_name} y {companies[1].display_name}"
+            empresas_text = "las empresas"
+        else:
+            # Multiple companies: "A, B y C"
+            company_names = [c.display_name for c in companies]
+            company_text = f"{', '.join(company_names[:-1])} y {company_names[-1]}"
+            empresas_text = "las empresas"
+
+        # Create subject with proper formatting
+        subject = f"Invitación para unirte a {company_text} en Fizko"
+
+        # Create professional email template
+        message = f"""
+Hola,
+
+{invitation.invited_by.get_full_name()} te ha invitado a unirte a {empresas_text} {company_text} en Fizko como {invitation.role.name}.
+
+Fizko es una plataforma integral de gestión contable y tributaria diseñada específicamente para pequeñas empresas chilenas. Al aceptar esta invitación, tendrás acceso a:
+
+• Automatización de procesos contables y tributarios
+• Integración directa con el SII (Servicio de Impuestos Internos)
+• Gestión de documentos electrónicos (DTEs)
+• Análisis financiero en tiempo real
+• Asistente de IA especializado en normativa chilena
+
+Para aceptar la invitación y comenzar a usar Fizko, haz clic en el siguiente enlace:
+
+{invitation_link}
+
+📋 Detalles de la invitación:
+• Rol: {invitation.role.name}
+• {"Empresa" if company_count == 1 else "Empresas"}: {company_text}
+• Invitado por: {invitation.invited_by.get_full_name()}
+• Válida hasta: {invitation.expires_at.strftime('%d/%m/%Y a las %H:%M')} (horario de Chile)
+
+Si tienes alguna pregunta sobre esta invitación, puedes contactar directamente a {invitation.invited_by.get_full_name()} en {invitation.invited_by.email}.
+
+Si no solicitaste esta invitación, puedes ignorar este mensaje de forma segura.
+
+¡Bienvenido al futuro de la contabilidad chilena!
+
+Saludos cordiales,
+Equipo Fizko
+        """
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [invitation.email],
+                fail_silently=False,
+            )
+            logger.info(f"Invitation email sent successfully to {invitation.email} for {company_count} company(ies)")
+        except Exception as e:
+            # Log error but don't fail invitation creation
+            logger.error(f"Error sending invitation email: {e}")
+            print(f"Error sending invitation email: {e}")
+
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     """
@@ -295,26 +474,49 @@ class UserRoleViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def by_company(self, request):
-        """Get users and roles for a specific company"""
-        company_id = request.query_params.get('company')
-        if not company_id:
+        """Get users and roles for one or more companies (comma-separated IDs)"""
+        company_param = request.query_params.get('company')
+        if not company_param:
             return Response(
-                {'error': 'company parameter is required'}, 
+                {'error': 'company parameter is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Check if user has permission to view this company
-        if not UserRole.objects.filter(
-            user=request.user, 
-            company_id=company_id, 
-            active=True
-        ).exists():
+
+        # Parse company IDs (handle both single ID and comma-separated IDs)
+        try:
+            if ',' in company_param:
+                # Multiple company IDs
+                company_ids = [int(id.strip()) for id in company_param.split(',') if id.strip()]
+            else:
+                # Single company ID
+                company_ids = [int(company_param)]
+        except ValueError:
             return Response(
-                {'error': 'No tienes permiso para ver esta empresa'}, 
+                {'error': 'Invalid company ID format'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check if user has permission to view all requested companies
+        user_company_ids = UserRole.objects.filter(
+            user=request.user,
+            active=True
+        ).values_list('company_id', flat=True)
+
+        # Filter to only companies the user has access to
+        accessible_company_ids = [cid for cid in company_ids if cid in user_company_ids]
+
+        if not accessible_company_ids:
+            return Response(
+                {'error': 'No tienes permiso para ver estas empresas'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
-        user_roles = UserRole.objects.filter(company_id=company_id, active=True)
+
+        # Fetch user roles for all accessible companies
+        user_roles = UserRole.objects.filter(
+            company_id__in=accessible_company_ids,
+            active=True
+        ).select_related('user', 'company', 'role')
+
         serializer = UserRoleSerializer(user_roles, many=True)
         return Response(serializer.data)
 
@@ -466,9 +668,8 @@ class SendVerificationCodeView(APIView):
 
     def _send_phone_verification(self, user, code):
         """Send WhatsApp verification code using Kapso service"""
-        from apps.chat.services.chat_service import chat_service
-
         try:
+            from apps.chat.services.chat_service import chat_service
             message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
 
             # Format phone number for WhatsApp (add + prefix)
@@ -485,6 +686,9 @@ class SendVerificationCodeView(APIView):
             else:
                 print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
 
+        except ImportError:
+            # Chat service not available
+            print(f"Chat service not available for phone verification to {user.phone}")
         except Exception as e:
             print(f"Error sending WhatsApp verification: {e}")
 
@@ -570,9 +774,8 @@ class ResendVerificationCodeView(APIView):
 
     def _send_phone_verification(self, user, code):
         """Send WhatsApp verification code using Kapso service"""
-        from apps.chat.services.chat_service import chat_service
-
         try:
+            from apps.chat.services.chat_service import chat_service
             message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
 
             # Format phone number for WhatsApp (add + prefix)
@@ -589,6 +792,9 @@ class ResendVerificationCodeView(APIView):
             else:
                 print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
 
+        except ImportError:
+            # Chat service not available
+            print(f"Chat service not available for phone verification to {user.phone}")
         except Exception as e:
             print(f"Error sending WhatsApp verification: {e}")
 
@@ -610,3 +816,79 @@ def verification_status(request):
         'fully_verified': user.is_fully_verified,
         'requires_verification': not user.is_fully_verified
     })
+
+
+class InvitationValidationView(APIView):
+    """
+    API view for validating team invitations
+    """
+    permission_classes = []  # Public endpoint
+
+    def get(self, request, token):
+        """Validate invitation token and return invitation details"""
+        try:
+            # Parse UUID token
+            import uuid
+            try:
+                token_uuid = uuid.UUID(token)
+            except ValueError:
+                return Response({
+                    'valid': False,
+                    'message': 'Token de invitación inválido'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Find invitation
+            try:
+                invitation = TeamInvitation.objects.select_related(
+                    'role', 'invited_by'
+                ).prefetch_related('companies').get(token=token_uuid, status='pending')
+            except TeamInvitation.DoesNotExist:
+                return Response({
+                    'valid': False,
+                    'message': 'Invitación no encontrada'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if invitation is still valid
+            if not invitation.can_be_accepted():
+                return Response({
+                    'valid': False,
+                    'message': 'La invitación ha expirado'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Return invitation details
+            data = {
+                'valid': True,
+                'email': invitation.email,
+                'companies': [
+                    {
+                        'id': company.id,
+                        'name': company.display_name,
+                        'business_name': company.business_name,
+                        'tax_id': company.tax_id
+                    } for company in invitation.companies.all()
+                ],
+                'role': {
+                    'id': invitation.role.id,
+                    'name': invitation.role.name,
+                    'description': invitation.role.description
+                },
+                'invited_by': {
+                    'id': invitation.invited_by.id,
+                    'name': invitation.invited_by.get_full_name(),
+                    'email': invitation.invited_by.email
+                },
+                'expires_at': invitation.expires_at,
+            }
+
+            # Generate message with company names
+            company_names = ', '.join([c.display_name for c in invitation.companies.all()])
+            data['message'] = f'Te han invitado a unirte a {company_names} como {invitation.role.name}'
+
+            serializer = InvitationValidationSerializer(data)
+            return Response(serializer.data)
+
+        except Exception as e:
+            return Response({
+                'valid': False,
+                'message': 'Error interno del servidor'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -279,37 +279,57 @@ class ProcessViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        """Filtrar procesos por usuario y empresa"""
+        """Filtrar procesos por usuario y empresa(s)"""
         queryset = Process.objects.all()
 
-        # Filtrar por company_id si se proporciona
+        # Filtrar por company_ids (múltiples) o company_id (único)
+        company_ids_param = self.request.query_params.get('company_ids')
         company_id = self.request.query_params.get('company_id')
-        if company_id:
+
+        companies_to_filter = []
+
+        if company_ids_param:
             try:
-                # Filtrar directamente por la relación ForeignKey
-                queryset = queryset.filter(company_id=company_id)
+                # Parsear array de IDs: "1,2,3" -> [1, 2, 3]
+                company_ids = [int(id.strip()) for id in company_ids_param.split(',') if id.strip()]
+                if company_ids:
+                    companies_to_filter = company_ids
+            except (ValueError, TypeError):
+                # Si los company_ids no son válidos, devolver queryset vacío
+                queryset = queryset.none()
+                return queryset
+        elif company_id:
+            try:
+                companies_to_filter = [int(company_id)]
             except (ValueError, TypeError):
                 # Si el company_id no es válido, devolver queryset vacío
                 queryset = queryset.none()
+                return queryset
 
-        # Verificar que el usuario tenga acceso a la empresa solicitada
-        # Solo aplicar si el usuario está autenticado y tenemos company_id
+        # Aplicar filtro por empresa(s) si se proporcionaron
+        if companies_to_filter:
+            queryset = queryset.filter(company_id__in=companies_to_filter)
+
+        # Verificar que el usuario tenga acceso a TODAS las empresas solicitadas
+        # Solo aplicar si el usuario está autenticado y tenemos empresas
         if (hasattr(self.request.user, 'email') and
             self.request.user.email and
             self.request.user.is_authenticated and
-            company_id):
+            companies_to_filter):
 
             from apps.accounts.models import UserRole
 
-            # Verificar que el usuario tenga un rol activo en la empresa solicitada
-            user_has_access = UserRole.objects.filter(
-                user__email=self.request.user.email,
-                company_id=company_id,
-                active=True
-            ).exists()
+            # Verificar que el usuario tenga un rol activo en TODAS las empresas solicitadas
+            user_companies = set(
+                UserRole.objects.filter(
+                    user__email=self.request.user.email,
+                    active=True
+                ).values_list('company_id', flat=True)
+            )
 
-            if not user_has_access:
-                # Si el usuario no tiene acceso a la empresa, devolver queryset vacío
+            requested_companies = set(companies_to_filter)
+            if not requested_companies.issubset(user_companies):
+                # Si el usuario no tiene acceso a alguna empresa, devolver queryset vacío
                 queryset = queryset.none()
 
         return queryset

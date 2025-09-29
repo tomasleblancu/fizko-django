@@ -162,8 +162,9 @@ class Company(TimeStampedModel):
                     self.taxpayer.save()
                     
                     # Sincronizar modelos relacionados que necesitan la company
-                    self.taxpayer._sync_address_from_sii(contribuyente_data, company=self)
-                    self.taxpayer._sync_activity_from_sii(contribuyente_data, company=self)
+                    # TODO: Implementar métodos de sincronización de dirección y actividad
+                    # self.taxpayer._sync_address_from_sii(contribuyente_data, company=self)
+                    # self.taxpayer._sync_activity_from_sii(contribuyente_data, company=self)
                 
                 # Actualizar última verificación de credenciales
                 from django.utils import timezone

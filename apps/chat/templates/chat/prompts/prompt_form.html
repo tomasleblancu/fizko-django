@@ -1,0 +1,581 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}
+{{ title }} - {{ agent.name }}
+{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">{{ agent.get_agent_type_display }} - Gestión de prompts</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-{% if form.instance.pk %}edit{% else %}plus{% endif %} me-2"></i>
+                    {{ title }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+
+                    {% if form.errors %}
+                        <div class="alert alert-danger">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>Errores en el formulario:</h6>
+                            {% for field, errors in form.errors.items %}
+                                {% for error in errors %}
+                                    <div>{{ field }}: {{ error }}</div>
+                                {% endfor %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label for="{{ form.name.id_for_label }}" class="form-label">
+                            <strong>{{ form.name.label }}</strong>
+                        </label>
+                        {{ form.name }}
+                        {% if form.name.help_text %}
+                            <div class="form-text">{{ form.name.help_text }}</div>
+                        {% endif %}
+                        {% if form.name.errors %}
+                            <div class="text-danger">
+                                {% for error in form.name.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.description.id_for_label }}" class="form-label">
+                            {{ form.description.label }}
+                        </label>
+                        {{ form.description }}
+                        {% if form.description.help_text %}
+                            <div class="form-text">{{ form.description.help_text }}</div>
+                        {% endif %}
+                        {% if form.description.errors %}
+                            <div class="text-danger">
+                                {% for error in form.description.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.prompt_type.id_for_label }}" class="form-label">
+                            <strong>{{ form.prompt_type.label }}</strong>
+                        </label>
+                        {{ form.prompt_type }}
+                        {% if form.prompt_type.help_text %}
+                            <div class="form-text">{{ form.prompt_type.help_text }}</div>
+                        {% endif %}
+                        {% if form.prompt_type.errors %}
+                            <div class="text-danger">
+                                {% for error in form.prompt_type.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label for="{{ form.content.id_for_label }}" class="form-label mb-0">
+                                <strong>{{ form.content.label }}</strong>
+                            </label>
+                            <button type="button" id="enhancePromptBtn" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-magic me-1"></i>
+                                Perfeccionar con IA
+                            </button>
+                        </div>
+                        {{ form.content }}
+                        {% if form.content.help_text %}
+                            <div class="form-text">{{ form.content.help_text }}</div>
+                        {% endif %}
+                        {% if form.content.errors %}
+                            <div class="text-danger">
+                                {% for error in form.content.errors %}
+                                    <small>{{ error }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        <!-- Área de resultados del perfeccionamiento -->
+                        <div id="enhancementResults" class="mt-3" style="display: none;">
+                            <div class="card border-success">
+                                <div class="card-header bg-success text-white py-2">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-sparkles me-2"></i>
+                                        Prompt Perfeccionado por IA
+                                        <small class="float-end">
+                                            <span id="improvementScore" class="badge bg-light text-success"></span>
+                                        </small>
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="enhancedContent" class="border rounded p-3 bg-light mb-3" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap;"></div>
+
+                                    <div class="mb-3">
+                                        <div id="enhancementExplanation" class="text-muted small"></div>
+                                    </div>
+
+                                    <div class="d-flex gap-2">
+                                        <button type="button" id="acceptEnhancement" class="btn btn-success btn-sm">
+                                            <i class="fas fa-check me-1"></i>
+                                            Aplicar Mejoras
+                                        </button>
+                                        <button type="button" id="rejectEnhancement" class="btn btn-outline-secondary btn-sm">
+                                            <i class="fas fa-times me-1"></i>
+                                            Descartar
+                                        </button>
+                                        <button type="button" id="compareVersions" class="btn btn-outline-info btn-sm">
+                                            <i class="fas fa-eye me-1"></i>
+                                            Comparar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Loading spinner -->
+                        <div id="enhancementLoading" class="text-center mt-3" style="display: none;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Perfeccionando...</span>
+                            </div>
+                            <div class="mt-2 text-muted">
+                                <small>Perfeccionando prompt con IA...</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="{{ form.priority.id_for_label }}" class="form-label">
+                                    {{ form.priority.label }}
+                                </label>
+                                {{ form.priority }}
+                                {% if form.priority.help_text %}
+                                    <div class="form-text">{{ form.priority.help_text }}</div>
+                                {% endif %}
+                                {% if form.priority.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.priority.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check mt-4">
+                                    {{ form.is_active }}
+                                    <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                                        {{ form.is_active.label }}
+                                    </label>
+                                </div>
+                                {% if form.is_active.help_text %}
+                                    <div class="form-text">{{ form.is_active.help_text }}</div>
+                                {% endif %}
+                                {% if form.is_active.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.is_active.errors %}
+                                            <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-secondary">
+                            <i class="fas fa-times me-2"></i>
+                            Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>
+                            {% if form.instance.pk %}Actualizar{% else %}Crear{% endif %} Prompt
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Ayuda -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Información sobre Prompts
+                </h6>
+            </div>
+            <div class="card-body">
+                <h6 class="text-muted mb-3">Tipos de Prompt Disponibles</h6>
+                <div class="mb-4">
+                    <div class="mb-3">
+                        <span class="badge bg-info me-2">Instrucción</span>
+                        <strong>Directivas específicas</strong>
+                        <p class="text-muted small mb-2 ms-4">Define cómo debe comportarse el agente en situaciones específicas. Ej: "Siempre solicita el RUT antes de consultar información tributaria"</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-warning me-2">Ejemplo</span>
+                        <strong>Casos de uso y respuestas modelo</strong>
+                        <p class="text-muted small mb-2 ms-4">Muestra interacciones ideales para que el agente aprenda. Ej: "Cuando el usuario pregunte por F29, primero explica qué es y luego ofrece ayuda"</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-danger me-2">Restricción</span>
+                        <strong>Límites y reglas estrictas</strong>
+                        <p class="text-muted small mb-2 ms-4">Define lo que el agente NO debe hacer. Ej: "Nunca proporciones asesoría legal específica, solo información general"</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-success me-2">Plantilla</span>
+                        <strong>Formatos de respuesta reutilizables</strong>
+                        <p class="text-muted small mb-2 ms-4">Estructuras predefinidas para generar respuestas consistentes. Usa {variables} para datos dinámicos. Ej: "Resumen mensual: Ventas: {total}, IVA: {iva}"</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-secondary me-2">Respaldo</span>
+                        <strong>Respuestas de seguridad ante errores</strong>
+                        <p class="text-muted small mb-2 ms-4">Qué decir cuando algo falla o no se entiende la consulta. Ej: "No pude conectar con el SII, intenta en unos minutos"</p>
+                    </div>
+
+                    <div class="mb-3">
+                        <span class="badge bg-primary me-2">Conocimiento Específico</span>
+                        <strong>Información del dominio</strong>
+                        <p class="text-muted small mb-2 ms-4">Datos especializados del negocio o contexto. Ej: "Nuestra empresa tiene convenio con SII para declaración simplificada código 3323"</p>
+                    </div>
+                </div>
+
+                <hr>
+
+                <h6 class="text-muted mb-3">Prioridades</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <ul class="list-unstyled small">
+                            <li><i class="fas fa-arrow-down text-success me-1"></i> <strong>0-25:</strong> Baja prioridad</li>
+                            <li><i class="fas fa-arrow-right text-warning me-1"></i> <strong>26-75:</strong> Prioridad media</li>
+                            <li><i class="fas fa-arrow-up text-danger me-1"></i> <strong>76-100:</strong> Alta prioridad</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="alert alert-info py-2 px-3 small mb-0">
+                            <i class="fas fa-lightbulb me-1"></i>
+                            Los prompts con mayor prioridad se aplican primero y pueden sobrescribir a los de menor prioridad
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+#enhancePromptBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#enhancePromptBtn:disabled:hover {
+    background-color: var(--bs-secondary) !important;
+    border-color: var(--bs-secondary) !important;
+}
+</style>
+
+<script>
+// Variables globales
+let originalContent = '';
+let enhancedContent = '';
+
+// Auto-resize textarea
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('{{ form.content.id_for_label }}');
+    if (textarea) {
+        textarea.style.minHeight = '200px';
+
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Trigger resize on load
+        textarea.dispatchEvent(new Event('input'));
+    }
+
+    // Inicializar funcionalidad de perfeccionamiento
+    initPromptEnhancement();
+});
+
+function initPromptEnhancement() {
+    const enhanceBtn = document.getElementById('enhancePromptBtn');
+    const contentTextarea = document.getElementById('{{ form.content.id_for_label }}');
+    const promptTypeSelect = document.getElementById('{{ form.prompt_type.id_for_label }}');
+    const loadingDiv = document.getElementById('enhancementLoading');
+    const resultsDiv = document.getElementById('enhancementResults');
+
+    // Botón principal de perfeccionamiento
+    enhanceBtn.addEventListener('click', function() {
+        const content = contentTextarea.value.trim();
+        const promptType = promptTypeSelect.value;
+
+        if (!content) {
+            alert('Por favor, escribe algo en el contenido del prompt antes de perfeccionarlo.');
+            contentTextarea.focus();
+            return;
+        }
+
+        if (!promptType) {
+            alert('Por favor, selecciona un tipo de prompt antes de perfeccionarlo.');
+            promptTypeSelect.focus();
+            return;
+        }
+
+        originalContent = content;
+        enhancePrompt(content, promptType);
+    });
+
+    // Validar selección de tipo para habilitar/deshabilitar botón
+    function updateEnhanceButtonState() {
+        const hasContent = contentTextarea.value.trim().length > 0;
+        const hasType = promptTypeSelect.value !== '';
+
+        enhanceBtn.disabled = !(hasContent && hasType);
+
+        if (!hasType) {
+            enhanceBtn.title = 'Selecciona un tipo de prompt primero';
+        } else if (!hasContent) {
+            enhanceBtn.title = 'Escribe contenido antes de perfeccionar';
+        } else {
+            enhanceBtn.title = 'Perfeccionar este prompt con IA';
+        }
+    }
+
+    // Eventos para validar en tiempo real
+    contentTextarea.addEventListener('input', updateEnhanceButtonState);
+    promptTypeSelect.addEventListener('change', updateEnhanceButtonState);
+
+    // Validar estado inicial
+    updateEnhanceButtonState();
+
+    // Botones de acción en los resultados
+    document.getElementById('acceptEnhancement').addEventListener('click', function() {
+        contentTextarea.value = enhancedContent;
+        contentTextarea.dispatchEvent(new Event('input')); // Trigger resize
+        resultsDiv.style.display = 'none';
+
+        // Mostrar notificación de éxito
+        showNotification('Mejoras aplicadas exitosamente', 'success');
+    });
+
+    document.getElementById('rejectEnhancement').addEventListener('click', function() {
+        resultsDiv.style.display = 'none';
+    });
+
+    document.getElementById('compareVersions').addEventListener('click', function() {
+        showComparisonModal(originalContent, enhancedContent);
+    });
+}
+
+function enhancePrompt(content, promptType) {
+    const loadingDiv = document.getElementById('enhancementLoading');
+    const resultsDiv = document.getElementById('enhancementResults');
+    const enhanceBtn = document.getElementById('enhancePromptBtn');
+
+    // Mostrar loading
+    loadingDiv.style.display = 'block';
+    resultsDiv.style.display = 'none';
+    enhanceBtn.disabled = true;
+
+    // Preparar datos
+    const data = {
+        content: content,
+        prompt_type: promptType
+    };
+
+    // Llamada AJAX
+    fetch(`{% url 'chat:enhance_prompt_api' agent.id %}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        loadingDiv.style.display = 'none';
+        enhanceBtn.disabled = false;
+
+        if (result.success) {
+            enhancedContent = result.enhanced_content;
+            showEnhancementResults(result);
+        } else {
+            showNotification('Error: ' + (result.error || 'No se pudo perfeccionar el prompt'), 'error');
+        }
+    })
+    .catch(error => {
+        loadingDiv.style.display = 'none';
+        enhanceBtn.disabled = false;
+        console.error('Error:', error);
+        showNotification('Error de conexión. Por favor, intenta nuevamente.', 'error');
+    });
+}
+
+function showEnhancementResults(result) {
+    const resultsDiv = document.getElementById('enhancementResults');
+    const contentDiv = document.getElementById('enhancedContent');
+    const explanationDiv = document.getElementById('enhancementExplanation');
+    const scoreSpan = document.getElementById('improvementScore');
+
+    // Mostrar contenido mejorado
+    contentDiv.textContent = result.enhanced_content;
+
+    // Mostrar explicación
+    explanationDiv.innerHTML = result.explanation.replace(/\n/g, '<br>');
+
+    // Mostrar score de mejora
+    const score = result.improvement_percentage || 0;
+    scoreSpan.textContent = `+${score}% mejorado`;
+
+    // Mostrar resultados
+    resultsDiv.style.display = 'block';
+
+    // Scroll suave hacia los resultados
+    resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function showComparisonModal(original, enhanced) {
+    // Crear modal dinámico para comparación
+    const modalHtml = `
+        <div class="modal fade" id="comparisonModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-balance-scale me-2"></i>
+                            Comparación de Prompts
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-muted">
+                                    <i class="fas fa-file-alt me-2"></i>
+                                    Prompt Original
+                                </h6>
+                                <div class="border rounded p-3 bg-light" style="height: 400px; overflow-y: auto; white-space: pre-wrap;">${original}</div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-success">
+                                    <i class="fas fa-sparkles me-2"></i>
+                                    Prompt Perfeccionado
+                                </h6>
+                                <div class="border rounded p-3 bg-success-subtle" style="height: 400px; overflow-y: auto; white-space: pre-wrap;">${enhanced}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                        <button type="button" class="btn btn-success" onclick="document.getElementById('acceptEnhancement').click(); bootstrap.Modal.getInstance(document.getElementById('comparisonModal')).hide();">
+                            <i class="fas fa-check me-2"></i>
+                            Aplicar Mejoras
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Eliminar modal existente si existe
+    const existingModal = document.getElementById('comparisonModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Agregar modal al DOM
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('comparisonModal'));
+    modal.show();
+
+    // Limpiar modal cuando se cierre
+    document.getElementById('comparisonModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+function showNotification(message, type = 'info') {
+    // Crear notificación toast
+    const toastHtml = `
+        <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : 'success'} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'check-circle'} me-2"></i>
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+
+    // Agregar al contenedor de toasts (crear si no existe)
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+
+    // Mostrar toast
+    const toastElement = toastContainer.lastElementChild;
+    const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
+    toast.show();
+
+    // Limpiar toast después de que se oculte
+    toastElement.addEventListener('hidden.bs.toast', function() {
+        this.remove();
+    });
+}
+
+// Función helper para obtener CSRF token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

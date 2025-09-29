@@ -1,0 +1,177 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}Biblioteca de Herramientas{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Herramientas disponibles para asignar a tus agentes</p>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Search and Filters -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="get" class="row g-3">
+                    <div class="col-md-6">
+                        <label for="search" class="form-label">Buscar Herramientas</label>
+                        <input type="text" class="form-control" id="search" name="search"
+                               placeholder="Nombre o descripción..." value="{{ search_query }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="category" class="form-label">Categoría</label>
+                        <select class="form-select" id="category" name="category">
+                            <option value="">Todas las categorías</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}" {% if current_category == cat %}selected{% endif %}>
+                                {{ cat|capfirst }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-outline-primary">
+                                <i class="fas fa-search me-2"></i>
+                                Buscar
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Tools Summary -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <h4 class="text-primary">{{ total_tools }}</h4>
+                        <p class="text-muted mb-0">Herramientas Totales</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h4 class="text-success">{{ tools_by_category|length }}</h4>
+                        <p class="text-muted mb-0">Categorías Activas</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h4 class="text-info">{{ categories|length }}</h4>
+                        <p class="text-muted mb-0">Categorías Disponibles</p>
+                    </div>
+                    <div class="col-md-3">
+                        <h4 class="text-warning">
+                            <i class="fas fa-robot"></i>
+                        </h4>
+                        <p class="text-muted mb-0">Auto-descubrimiento Activo</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tools by Category -->
+        {% if tools_by_category %}
+            {% for category_name, category_data in tools_by_category.items %}
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-{% if category_name == 'documents' %}file-alt{% elif category_name == 'calculation' %}calculator{% elif category_name == 'sii' %}landmark{% elif category_name == 'search' %}search{% else %}tools{% endif %} me-2"></i>
+                        {{ category_name|capfirst }}
+                    </h5>
+                    <span class="badge bg-primary">
+                        {{ category_data.tools|length }} herramienta{{ category_data.tools|length|pluralize }}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for tool in category_data.tools %}
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 border-start border-4 border-{% if category_name == 'documents' %}primary{% elif category_name == 'calculation' %}success{% elif category_name == 'sii' %}warning{% elif category_name == 'search' %}info{% else %}secondary{% endif %}">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="card-title mb-0">
+                                            {{ tool.display_name }}
+                                        </h6>
+                                        <span class="tool-badge">
+                                            <i class="fas fa-check"></i>
+                                        </span>
+                                    </div>
+
+                                    <p class="card-text text-muted small">
+                                        {{ tool.description|truncatewords:15 }}
+                                    </p>
+
+                                    <div class="mb-2">
+                                        <small class="text-muted">Parámetros requeridos:</small>
+                                        <span class="badge bg-secondary ms-1">
+                                            {{ tool.required_parameters|length }}
+                                        </span>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <small class="text-muted">Parámetros opcionales:</small>
+                                        <span class="badge bg-info ms-1">
+                                            {{ tool.optional_parameters|length }}
+                                        </span>
+                                    </div>
+
+                                    <div class="d-grid">
+                                        <a href="{% url 'chat_admin:tool_detail' tool.tool_name %}"
+                                           class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-eye me-1"></i>
+                                            Ver Detalle
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <!-- Empty State -->
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-tools fa-4x text-muted mb-4"></i>
+                    {% if search_query or current_category %}
+                        <h4 class="text-muted">No se encontraron herramientas</h4>
+                        <p class="text-muted mb-4">
+                            Prueba ajustando los filtros de búsqueda o selecciona una categoría diferente.
+                        </p>
+                        <a href="{% url 'chat_admin:tools_library' %}" class="btn btn-outline-primary">
+                            <i class="fas fa-times me-2"></i>
+                            Limpiar Filtros
+                        </a>
+                    {% else %}
+                        <h4 class="text-muted">No hay herramientas disponibles</h4>
+                        <p class="text-muted mb-4">
+                            El sistema de auto-descubrimiento no encontró herramientas en el directorio.
+                        </p>
+                        <div class="alert alert-info text-start">
+                            <h6 class="alert-heading">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Cómo agregar herramientas:
+                            </h6>
+                            <ol class="mb-0">
+                                <li>Crea un archivo Python en <code>apps/chat/tools/</code></li>
+                                <li>Hereda de <code>BaseTool</code> y usa el decorador <code>@register_tool</code></li>
+                                <li>Implementa los métodos requeridos</li>
+                                <li>El sistema las detectará automáticamente</li>
+                            </ol>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.border-start {
+    border-left-width: 4px !important;
+}
+</style>
+{% endblock %}

@@ -6,7 +6,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from .models import User, UserProfile, Role, UserRole, VerificationCode
+from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation
 from apps.core.validators import validate_phone_number
 
 
@@ -297,30 +297,62 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
     phone = serializers.CharField(validators=[validate_phone_number], required=True, allow_blank=False)
+    invitation_token = serializers.UUIDField(required=False, write_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'first_name', 'last_name', 'phone', 'password', 'password_confirm']
+        fields = ['email', 'first_name', 'last_name', 'phone', 'password', 'password_confirm', 'invitation_token']
         extra_kwargs = {
             'email': {'required': True},
             'first_name': {'required': True},
             'last_name': {'required': True},
             'phone': {'required': True},
         }
-    
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({
                 'password_confirm': 'Las contraseñas no coinciden'
             })
+
+        # Validate invitation token if provided
+        invitation_token = attrs.get('invitation_token')
+        if invitation_token:
+            try:
+                invitation = TeamInvitation.objects.get(token=invitation_token, status='pending')
+                if not invitation.can_be_accepted():
+                    raise serializers.ValidationError({
+                        'invitation_token': 'La invitación ha expirado o no es válida'
+                    })
+
+                # Check if email matches the invitation
+                if attrs['email'].lower() != invitation.email.lower():
+                    raise serializers.ValidationError({
+                        'email': 'El email debe coincidir con el de la invitación'
+                    })
+
+                attrs['_invitation'] = invitation
+            except TeamInvitation.DoesNotExist:
+                raise serializers.ValidationError({
+                    'invitation_token': 'Token de invitación inválido'
+                })
+
         return attrs
-    
+
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        invitation_token = validated_data.pop('invitation_token', None)
+        invitation = validated_data.pop('_invitation', None)
+
         password = validated_data.pop('password')
         user = User.objects.create_user(**validated_data)
         user.set_password(password)
         user.save()
+
+        # If there's an invitation, store it for later processing
+        if invitation:
+            user._invitation = invitation
+
         return user
 
 
@@ -458,3 +490,139 @@ class ResendVerificationCodeSerializer(serializers.Serializer):
             )
 
         return value
+
+
+class InviteToTeamSerializer(serializers.Serializer):
+    """
+    Serializer for inviting users to teams
+    Now supports multiple companies
+    """
+    email = serializers.EmailField(required=True)
+    company_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True,
+        min_length=1,
+        help_text="Lista de IDs de empresas a las que invitar"
+    )
+    role_id = serializers.IntegerField(required=True)
+
+    def validate_email(self, value):
+        """Validate email format"""
+        return value.lower().strip()
+
+    def validate(self, attrs):
+        """Validate invitation data for multiple companies"""
+        from apps.companies.models import Company
+
+        user = self.context.get('user')
+        if not user:
+            raise serializers.ValidationError("Usuario no encontrado")
+
+        email = attrs['email']
+        company_ids = attrs['company_ids']
+        role_id = attrs['role_id']
+
+        # Validate all companies exist
+        companies = []
+        for company_id in company_ids:
+            try:
+                company = Company.objects.get(id=company_id)
+                companies.append(company)
+            except Company.DoesNotExist:
+                raise serializers.ValidationError({
+                    'company_ids': f'La empresa con ID {company_id} no existe'
+                })
+
+        # Check if user is owner of ALL specified companies
+        for company in companies:
+            user_role = UserRole.objects.filter(
+                user=user,
+                company=company,
+                role__name='owner',
+                active=True
+            ).first()
+
+            if not user_role:
+                raise serializers.ValidationError({
+                    'company_ids': f'Solo los propietarios pueden enviar invitaciones. No eres owner de {company.display_name}'
+                })
+
+        # Validate role exists
+        try:
+            role = Role.objects.get(id=role_id, is_active=True)
+        except Role.DoesNotExist:
+            raise serializers.ValidationError({
+                'role_id': 'El rol especificado no existe o no está activo'
+            })
+
+        # Check if email is already a member of ANY of the companies
+        existing_user = User.objects.filter(email=email).first()
+        if existing_user:
+            for company in companies:
+                existing_role = UserRole.objects.filter(
+                    user=existing_user,
+                    company=company,
+                    active=True
+                ).exists()
+
+                if existing_role:
+                    raise serializers.ValidationError({
+                        'email': f'Este usuario ya es miembro de {company.display_name}'
+                    })
+
+        # Check for pending invitations that include any of these companies
+        for company in companies:
+            pending_invitation = TeamInvitation.objects.filter(
+                email=email,
+                companies=company,
+                status='pending'
+            ).exists()
+
+            if pending_invitation:
+                raise serializers.ValidationError({
+                    'email': f'Ya existe una invitación pendiente para este email que incluye {company.display_name}'
+                })
+
+        # Store validated objects for use in the view
+        attrs['companies'] = companies
+        attrs['role'] = role
+
+        return attrs
+
+
+class TeamInvitationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for TeamInvitation model
+    """
+    invited_by_name = serializers.CharField(source='invited_by.get_full_name', read_only=True)
+    company_names = serializers.SerializerMethodField(read_only=True)
+    role_name = serializers.CharField(source='role.name', read_only=True)
+
+    def get_company_names(self, obj):
+        """Get company names for the invitation"""
+        return obj.get_company_names()
+
+    class Meta:
+        model = TeamInvitation
+        fields = [
+            'id', 'email', 'status', 'token', 'expires_at', 'accepted_at',
+            'created_at', 'updated_at', 'invited_by_name', 'company_names', 'role_name',
+            'companies', 'role', 'invited_by'
+        ]
+        read_only_fields = [
+            'id', 'token', 'created_at', 'updated_at', 'invited_by_name',
+            'company_names', 'role_name', 'accepted_at'
+        ]
+
+
+class InvitationValidationSerializer(serializers.Serializer):
+    """
+    Serializer for invitation validation response
+    """
+    valid = serializers.BooleanField()
+    email = serializers.EmailField()
+    companies = serializers.ListField(child=serializers.DictField())
+    role = serializers.DictField()
+    invited_by = serializers.DictField()
+    expires_at = serializers.DateTimeField()
+    message = serializers.CharField(required=False)

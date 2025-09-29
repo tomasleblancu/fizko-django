@@ -1,0 +1,225 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}Resultado de Prueba - {{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">{{ agent.get_agent_type_display }} - Respuesta del agente</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'chat_admin:test_agent' agent.id %}" class="btn btn-primary">
+        <i class="fas fa-redo me-2"></i>
+        Nueva Prueba
+    </a>
+    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Test Results -->
+    <div class="col-md-8">
+        <!-- Input Message -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-user me-2"></i>
+                    Mensaje de Entrada
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="bg-light p-3 rounded">
+                    <strong>Tu pregunta:</strong>
+                    <div class="mt-2">{{ result.input_message }}</div>
+                </div>
+                {% if result.context_applied %}
+                <div class="mt-3">
+                    <h6 class="text-muted">Contexto Aplicado:</h6>
+                    <pre class="bg-light p-3 rounded small">{{ result.context_applied|pprint }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Agent Response -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Respuesta del Agente
+                </h5>
+                <span class="badge bg-success">
+                    <i class="fas fa-clock me-1"></i>
+                    {{ result.execution_time }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="agent-response bg-white border p-4 rounded">
+                    {{ result.agent_response|linebreaks }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Tools Used -->
+        {% if result.tools_used %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-tools me-2"></i>
+                    Herramientas Utilizadas
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for tool in result.tools_used %}
+                    <div class="col-md-6 mb-2">
+                        <div class="d-flex align-items-center">
+                            <div class="tool-badge me-2">
+                                <i class="fas fa-wrench"></i>
+                            </div>
+                            <span class="fw-bold">{{ tool }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Test Metrics -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Métricas de Prueba
+                </h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Tiempo de ejecución:</strong></td>
+                        <td>
+                            <span class="badge bg-info">{{ result.execution_time }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Herramientas usadas:</strong></td>
+                        <td>
+                            <span class="badge bg-primary">{{ result.tools_used|length }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Contexto aplicado:</strong></td>
+                        <td>
+                            {% if result.context_applied %}
+                                <span class="badge bg-success">Sí</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Estado:</strong></td>
+                        <td>
+                            <span class="badge bg-success">Exitoso</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Agent Info -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Información del Agente
+                </h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Nombre:</strong></td>
+                        <td>{{ agent.name }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Tipo:</strong></td>
+                        <td>
+                            <span class="badge bg-primary">{{ agent.get_agent_type_display }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Modelo:</strong></td>
+                        <td><code>{{ agent.model_name }}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Temperatura:</strong></td>
+                        <td>{{ agent.temperature }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-bolt me-2"></i>
+                    Acciones Rápidas
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{% url 'chat_admin:test_agent' agent.id %}" class="btn btn-primary">
+                        <i class="fas fa-redo me-2"></i>
+                        Nueva Prueba
+                    </a>
+                    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-eye me-2"></i>
+                        Ver Agente
+                    </a>
+                    <a href="{% url 'chat_admin:agent_tools' agent.id %}" class="btn btn-outline-primary">
+                        <i class="fas fa-tools me-2"></i>
+                        Gestionar Herramientas
+                    </a>
+                    <a href="{% url 'chat_admin:agent_edit' agent.id %}" class="btn btn-outline-warning">
+                        <i class="fas fa-edit me-2"></i>
+                        Editar Agente
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.agent-response {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    color: #2c3e50;
+}
+
+.tool-badge {
+    background: linear-gradient(45deg, #28a745, #20c997);
+    color: white;
+    padding: 0.4rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+</style>
+{% endblock %}

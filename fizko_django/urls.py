@@ -21,7 +21,10 @@ urlpatterns = [
     
     # Health check
     path('health/', health_check, name='health-check'),
-    
+
+    # Chat management templates (separate from API)
+    path('chat/', include('apps.chat.template_urls')),
+
     # API v1 endpoints
     path('api/v1/', include([
         path('auth/', include('apps.accounts.urls')),
@@ -38,6 +41,8 @@ urlpatterns = [
         path('rates/', include('apps.rates.urls')),
         path('onboarding/', include('apps.onboarding.urls')),
         path('chat/', include('apps.chat.urls')),
+        path('hr/', include('apps.hr.urls')),
+        path('', include('apps.contacts.urls')),
     ])),
     
     # DRF browsable API (for development)

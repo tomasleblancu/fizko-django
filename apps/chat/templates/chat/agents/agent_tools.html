@@ -1,0 +1,279 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}Herramientas - {{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Gestiona las herramientas asignadas a este agente</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+    <a href="{% url 'chat_admin:tools_library' %}" class="btn btn-outline-info">
+        <i class="fas fa-tools me-2"></i>
+        Ver Biblioteca
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Agent Info -->
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h5 class="mb-1">
+                            <i class="fas fa-robot me-2"></i>
+                            {{ agent.name }}
+                        </h5>
+                        <p class="text-muted mb-0">
+                            Tipo: {{ agent.get_agent_type_display }} |
+                            Estado: <span class="badge bg-{% if agent.status == 'active' %}success{% elif agent.status == 'testing' %}warning{% else %}secondary{% endif %}">{{ agent.get_status_display }}</span>
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <h4 class="text-primary mb-0">{{ assigned_tools|length }}</h4>
+                                <small class="text-muted">Asignadas</small>
+                            </div>
+                            <div class="col-6">
+                                <h4 class="text-success mb-0">{{ available_tools|length }}</h4>
+                                <small class="text-muted">Disponibles</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assigned Tools -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-check-circle text-success me-2"></i>
+                    Herramientas Asignadas
+                </h5>
+                <span class="badge bg-success">{{ assigned_tools|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if assigned_tools %}
+                    <div class="list-group list-group-flush">
+                        {% for assignment in assigned_tools %}
+                        <div class="list-group-item d-flex justify-content-between align-items-start px-0">
+                            <div class="me-auto">
+                                <div class="fw-bold">{{ assignment.common_tool.display_name }}</div>
+                                <p class="mb-1 text-muted small">{{ assignment.common_tool.description|truncatewords:10 }}</p>
+                                <small class="text-muted">
+                                    Categoría: <span class="badge bg-secondary">{{ assignment.common_tool.category }}</span>
+                                    {% if not assignment.is_enabled %}
+                                    <span class="badge bg-warning ms-1">Deshabilitada</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="text-end">
+                                <div class="btn-group-vertical btn-group-sm">
+                                    <a href="{% url 'chat_admin:tool_detail' assignment.common_tool.name %}"
+                                       class="btn btn-outline-info btn-sm">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <form method="post" action="{% url 'chat_admin:remove_tool_from_agent' agent.id assignment.id %}"
+                                          style="display: inline;"
+                                          onsubmit="return confirm('¿Estás seguro de remover esta herramienta?')">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-tools fa-3x text-muted mb-3"></i>
+                        <h6 class="text-muted">No hay herramientas asignadas</h6>
+                        <p class="text-muted mb-0">
+                            Asigna herramientas desde la biblioteca disponible.
+                        </p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Available Tools -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-plus-circle text-primary me-2"></i>
+                    Herramientas Disponibles
+                </h5>
+                <span class="badge bg-primary">{{ available_tools|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if available_tools %}
+                    <!-- Category Filter -->
+                    <div class="mb-3">
+                        <select class="form-select form-select-sm" id="categoryFilter">
+                            <option value="">Todas las categorías</option>
+                            {% for category in categories %}
+                            <option value="{{ category }}">{{ category|capfirst }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="list-group list-group-flush" id="availableToolsList">
+                        {% for tool in available_tools %}
+                        <div class="list-group-item d-flex justify-content-between align-items-start px-0 tool-item"
+                             data-category="{{ tool.category }}">
+                            <div class="me-auto">
+                                <div class="fw-bold">{{ tool.display_name }}</div>
+                                <p class="mb-1 text-muted small">{{ tool.description|truncatewords:10 }}</p>
+                                <small class="text-muted">
+                                    <span class="badge bg-info">{{ tool.category }}</span>
+                                    <span class="badge bg-secondary ms-1">
+                                        {{ tool.required_parameters|length }} param{% if tool.required_parameters|length != 1 %}s{% endif %}
+                                    </span>
+                                </small>
+                            </div>
+                            <div class="text-end">
+                                <div class="btn-group-vertical btn-group-sm">
+                                    <a href="{% url 'chat_admin:tool_detail' tool.tool_name %}"
+                                       class="btn btn-outline-info btn-sm">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <form method="post" action="{% url 'chat_admin:assign_tool_to_agent' agent.id %}"
+                                          style="display: inline;">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="tool_name" value="{{ tool.tool_name }}">
+                                        <button type="submit" class="btn btn-outline-success btn-sm"
+                                                title="Asignar herramienta">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                        <h6 class="text-muted">Todas las herramientas compatibles están asignadas</h6>
+                        <p class="text-muted mb-3">
+                            Este agente tiene acceso a todas las herramientas disponibles para su tipo.
+                        </p>
+                        <a href="{% url 'chat_admin:tools_library' %}" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-tools me-2"></i>
+                            Ver Biblioteca Completa
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions -->
+{% if assigned_tools %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-cogs me-2"></i>
+                    Acciones en Lote
+                </h6>
+            </div>
+            <div class="card-body">
+                <form method="post" action="#" id="bulkActionsForm">
+                    {% csrf_token %}
+                    <div class="row align-items-end">
+                        <div class="col-md-8">
+                            <label class="form-label">Seleccionar herramientas:</label>
+                            <div class="form-check-group">
+                                {% for assignment in assigned_tools %}
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="tool_{{ assignment.id }}"
+                                           name="selected_tools"
+                                           value="{{ assignment.id }}">
+                                    <label class="form-check-label small" for="tool_{{ assignment.id }}">
+                                        {{ assignment.common_tool.display_name }}
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="btn-group w-100">
+                                <button type="button" class="btn btn-outline-warning btn-sm"
+                                        onclick="bulkAction('disable')">
+                                    <i class="fas fa-pause me-1"></i>
+                                    Deshabilitar
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm"
+                                        onclick="bulkAction('remove')">
+                                    <i class="fas fa-trash me-1"></i>
+                                    Remover
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Category filter functionality
+document.getElementById('categoryFilter').addEventListener('change', function() {
+    const selectedCategory = this.value;
+    const toolItems = document.querySelectorAll('.tool-item');
+
+    toolItems.forEach(item => {
+        if (selectedCategory === '' || item.dataset.category === selectedCategory) {
+            item.style.display = '';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+
+// Bulk actions functionality
+function bulkAction(action) {
+    const selectedTools = document.querySelectorAll('input[name="selected_tools"]:checked');
+
+    if (selectedTools.length === 0) {
+        alert('Selecciona al menos una herramienta.');
+        return;
+    }
+
+    const toolNames = Array.from(selectedTools).map(cb => {
+        const label = document.querySelector(`label[for="${cb.id}"]`);
+        return label.textContent.trim();
+    }).join(', ');
+
+    const actionText = action === 'disable' ? 'deshabilitar' : 'remover';
+
+    if (confirm(`¿Estás seguro de ${actionText} las siguientes herramientas?\n\n${toolNames}`)) {
+        // Aquí implementarías la lógica para las acciones en lote
+        console.log(`${action} tools:`, Array.from(selectedTools).map(cb => cb.value));
+    }
+}
+</script>
+{% endblock %}

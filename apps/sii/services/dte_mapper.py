@@ -99,6 +99,9 @@ class DTEMapper:
         folio = dte_data.get('detNroDoc')
         tipo_documento_raw = dte_data.get('detTipoDoc') or dte_data.get('codTDoc', 33)
         fecha_emision = self._parse_date(dte_data.get('detFchDoc'))
+
+        reference_folio = dte_data.get('detFolioDocRef', None)
+        reference_folio_type = dte_data.get('detTipoDocRef', None)
         
         # Determinar tipo de operación y RUT emisor
         tipo_operacion = dte_data.get('tipo_operacion', 'recibidos')
@@ -159,7 +162,9 @@ class DTEMapper:
             'status': 'accepted',  # Asumimos aceptado por defecto
             'sii_track_id': track_id,
             'xml_data': dte_data.get('xml_data', ''),
-            'raw_data': dte_data
+            'raw_data': dte_data,
+            'reference_folio': reference_folio,
+            'reference_folio_type': reference_folio_type,
         }
     
     def _map_rpa_format(self, dte_data: Dict) -> Dict[str, Any]:

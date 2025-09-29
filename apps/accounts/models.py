@@ -1,6 +1,9 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.core.validators import EmailValidator
+from django.utils import timezone
 from apps.core.models import TimeStampedModel
+import uuid
 
 
 class UserManager(BaseUserManager):
@@ -75,12 +78,21 @@ class UserProfile(TimeStampedModel):
     position = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
-    
+
+    # Campos para tracking del onboarding
+    onboarding_completed = models.BooleanField(default=False)
+    onboarding_step = models.IntegerField(default=1)
+    skip_onboarding = models.BooleanField(default=False)  # Para usuarios invitados
+
+    # Preferencias
+    preferred_language = models.CharField(max_length=10, default='es')
+    timezone = models.CharField(max_length=50, default='America/Santiago')
+
     class Meta:
         db_table = 'user_profiles'
         verbose_name = 'User Profile'
         verbose_name_plural = 'User Profiles'
-        
+
     def __str__(self):
         return f"{self.user.email} Profile"
 
@@ -209,3 +221,162 @@ class VerificationCode(TimeStampedModel):
         from datetime import timedelta
 
         return timezone.now() > self.last_resent_at + timedelta(minutes=5)
+
+
+class TeamInvitation(TimeStampedModel):
+    """
+    Invitaciones pendientes para unirse a equipos
+    Ahora soporta invitaciones a múltiples empresas
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Pendiente'),
+        ('accepted', 'Aceptada'),
+        ('expired', 'Expirada'),
+        ('cancelled', 'Cancelada'),
+    ]
+
+    # Información de la invitación
+    email = models.EmailField(validators=[EmailValidator()])
+    companies = models.ManyToManyField('companies.Company', related_name='team_invitations')
+    role = models.ForeignKey(Role, on_delete=models.CASCADE)
+
+    # Usuario que envía la invitación (debe ser owner)
+    invited_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_invitations')
+
+    # Estado y tracking
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+
+    # Timestamps adicionales
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    # Usuario que acepta la invitación (se llena cuando se registra)
+    accepted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accepted_invitations'
+    )
+
+    class Meta:
+        db_table = 'team_invitations'
+        verbose_name = 'Team Invitation'
+        verbose_name_plural = 'Team Invitations'
+        # Ahora unique_together solo considera email y status ya que puede haber múltiples empresas
+        # Un email no puede tener múltiples invitaciones activas con el mismo estado
+        indexes = [
+            models.Index(fields=['email', 'status']),
+            models.Index(fields=['token']),
+            models.Index(fields=['expires_at', 'status']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['email', 'status'],
+                condition=models.Q(status='pending'),
+                name='unique_pending_invitation_per_email'
+            ),
+        ]
+
+    def __str__(self):
+        # Evitar problemas con instancias no guardadas
+        if self.pk is None:
+            return f"Invitation: {self.email} (unsaved)"
+
+        try:
+            company_names = ", ".join([
+                company.display_name if hasattr(company, 'display_name') and company.display_name
+                else company.business_name
+                for company in self.companies.all()
+            ])
+            if not company_names:
+                company_names = "No companies"
+            role_name = self.role.name if self.role else "No role"
+            return f"Invitation: {self.email} to {company_names} as {role_name}"
+        except Exception:
+            # Fallback en caso de errores
+            return f"Invitation: {self.email} (ID: {self.pk})"
+
+    def is_expired(self):
+        """Verifica si la invitación ha expirado"""
+        return timezone.now() > self.expires_at and self.status == 'pending'
+
+    def can_be_accepted(self):
+        """Verifica si la invitación puede ser aceptada"""
+        return self.status == 'pending' and not self.is_expired()
+
+    def mark_as_expired(self):
+        """Marca la invitación como expirada"""
+        self.status = 'expired'
+        self.save(update_fields=['status'])
+
+    def accept(self, user):
+        """Acepta la invitación y crea UserRole para todas las empresas asociadas"""
+        from datetime import datetime
+
+        if not self.can_be_accepted():
+            raise ValueError("Esta invitación no puede ser aceptada")
+
+        created_roles = []
+        companies_info = []
+
+        # Crear UserRole para cada empresa asociada
+        for company in self.companies.all():
+            user_role, created = UserRole.objects.get_or_create(
+                user=user,
+                company=company,
+                defaults={'role': self.role, 'active': True}
+            )
+            if created:
+                created_roles.append(user_role)
+
+            # Recopilar información de la empresa
+            companies_info.append({
+                'id': company.id,
+                'name': company.display_name if hasattr(company, 'display_name') and company.display_name
+                       else company.business_name,
+                'business_name': company.business_name,
+                'tax_id': company.tax_id if hasattr(company, 'tax_id') else None,
+                'role_created': created,
+                'role': self.role.name
+            })
+
+        # Marcar invitación como aceptada
+        self.status = 'accepted'
+        self.accepted_by = user
+        self.accepted_at = timezone.now()
+        self.save()
+
+        return {
+            'user_roles': created_roles,
+            'companies': companies_info,
+            'role': {
+                'id': self.role.id,
+                'name': self.role.name,
+                'description': self.role.description
+            },
+            'total_companies': len(companies_info),
+            'new_roles_created': len(created_roles)
+        }
+
+    def get_companies(self):
+        """Método helper para obtener todas las empresas asociadas"""
+        return self.companies.all()
+
+    def get_company_names(self):
+        """Método helper para obtener los nombres de todas las empresas"""
+        return [company.display_name if hasattr(company, 'display_name') and company.display_name
+                else company.business_name for company in self.companies.all()]
+
+    def has_company(self, company):
+        """Verifica si la invitación incluye una empresa específica"""
+        return self.companies.filter(id=company.id).exists()
+
+    def save(self, *args, **kwargs):
+        # Establecer fecha de expiración si no está definida (7 días por defecto)
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(days=7)
+
+        super().save(*args, **kwargs)

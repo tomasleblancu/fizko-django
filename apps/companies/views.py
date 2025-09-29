@@ -275,6 +275,211 @@ class CompanyViewSet(viewsets.ModelViewSet):
             'new_settings': taxpayer.get_process_settings()
         })
 
+    @action(detail=False, methods=['post'])
+    def create_with_sii(self, request):
+        """
+        Crear nueva empresa con validación de credenciales SII
+        Endpoint simplificado para agregar empresas desde settings
+
+        POST /api/v1/companies/create-with-sii/
+        {
+            "business_name": "Mi Nueva Empresa",
+            "tax_id": "12345678-9",
+            "sii_password": "mi_password",
+            "email": "contacto@empresa.cl",
+            "mobile_phone": "+56912345678"  // opcional
+        }
+        """
+        try:
+            from .services import CompanyCreationService
+
+            # Validar datos requeridos
+            business_name = request.data.get('business_name')
+            tax_id = request.data.get('tax_id')
+            sii_password = request.data.get('sii_password')
+            email = request.data.get('email')
+            mobile_phone = request.data.get('mobile_phone', '')
+
+            # Validaciones básicas
+            if not all([business_name, tax_id, sii_password]):
+                return Response({
+                    'success': False,
+                    'error': 'MISSING_REQUIRED_FIELDS',
+                    'message': 'Campos requeridos: business_name, tax_id, sii_password',
+                    'required_fields': ['business_name', 'tax_id', 'sii_password']
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Normalizar tax_id
+            tax_id = tax_id.upper().strip()
+
+            # Usar el servicio compartido para crear la empresa
+            result = CompanyCreationService.create_company_from_sii_credentials(
+                user=request.user,
+                business_name=business_name,
+                tax_id=tax_id,
+                sii_password=sii_password,
+                email=email,
+                mobile_phone=mobile_phone
+            )
+
+            if result['success']:
+                # Invalidar queryset para mostrar nueva empresa
+                return Response({
+                    'success': True,
+                    'message': result['message'],
+                    'company_data': result['company_data']
+                }, status=status.HTTP_201_CREATED)
+            else:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error in create_with_sii: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'INTERNAL_ERROR',
+                'message': f'Error interno: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['delete'])
+    def leave_company(self, request, pk=None):
+        """
+        Desasociar usuario actual de una empresa o eliminar empresa si es el único owner
+
+        DELETE /api/v1/companies/{id}/leave_company/
+
+        Body (opcional):
+        {
+            "confirm_delete": true  // Requerido si el usuario es el único owner
+        }
+
+        Comportamiento:
+        - Si hay otros owners: Desvincula al usuario de la empresa
+        - Si es el único owner: Elimina la empresa completamente (requiere confirmación)
+        """
+        try:
+            company = self.get_object()
+            user = request.user
+
+            logger.info(f"👋 Usuario {user.email} solicitando desasociarse de empresa {company.business_name}")
+
+            # Verificar que el usuario tiene acceso a la empresa
+            from apps.accounts.models import UserRole
+            user_role = UserRole.objects.filter(
+                user=user,
+                company=company,
+                active=True
+            ).first()
+
+            if not user_role:
+                return Response({
+                    'success': False,
+                    'error': 'USER_NOT_ASSOCIATED',
+                    'message': 'El usuario no está asociado a esta empresa'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Verificar si es el único owner
+            owners_count = UserRole.objects.filter(
+                company=company,
+                role__name='owner',
+                active=True
+            ).count()
+
+            is_owner = user_role.role.name == 'owner'
+            is_only_owner = is_owner and owners_count == 1
+
+            # Si es el único owner, necesitamos eliminar la empresa
+            if is_only_owner:
+                # Verificar si el usuario confirmó la eliminación
+                confirm_delete = request.data.get('confirm_delete', False) if request.data else False
+
+                if not confirm_delete:
+                    # Devolver información para que el frontend pueda mostrar confirmación
+                    return Response({
+                        'success': False,
+                        'error': 'CONFIRMATION_REQUIRED',
+                        'message': 'Eres el único propietario de esta empresa. Si continúas, la empresa y todos sus datos serán eliminados permanentemente.',
+                        'requires_confirmation': True,
+                        'action': 'DELETE_COMPANY',
+                        'details': {
+                            'company_id': company.id,
+                            'company_name': company.business_name,
+                            'is_only_owner': True,
+                            'total_users': UserRole.objects.filter(company=company, active=True).count(),
+                            'will_delete_company': True
+                        }
+                    }, status=status.HTTP_200_OK)  # 200 porque no es un error, es una solicitud de confirmación
+
+                # Usuario confirmó, proceder con la eliminación
+                logger.warning(f"⚠️ Eliminando empresa {company.business_name} (ID: {company.id}) - único owner {user.email} abandonando")
+
+                # Eliminar credenciales SII de todos los usuarios para esta empresa
+                from apps.taxpayers.models import TaxpayerSiiCredentials
+                credentials_deleted = TaxpayerSiiCredentials.objects.filter(
+                    company=company
+                ).delete()
+
+                # Eliminar todos los UserRoles de esta empresa
+                roles_deleted = UserRole.objects.filter(
+                    company=company
+                ).delete()
+
+                # Guardar información antes de eliminar
+                company_name = company.business_name
+                company_id = company.id
+
+                # Eliminar la empresa (esto eliminará en cascada los datos relacionados)
+                company.delete()
+
+                logger.info(f"✅ Empresa {company_name} (ID: {company_id}) eliminada completamente")
+
+                return Response({
+                    'success': True,
+                    'message': f'La empresa {company_name} ha sido eliminada completamente',
+                    'action': 'COMPANY_DELETED',
+                    'details': {
+                        'company_id': company_id,
+                        'company_name': company_name,
+                        'company_deleted': True,
+                        'credentials_deleted': credentials_deleted[0] if credentials_deleted else 0,
+                        'roles_deleted': roles_deleted[0] if roles_deleted else 0
+                    }
+                }, status=status.HTTP_200_OK)
+
+            # No es el único owner, solo desvincular al usuario
+            # Desactivar el rol del usuario
+            user_role.active = False
+            user_role.save()
+
+            # Eliminar credenciales SII del usuario para esta empresa
+            from apps.taxpayers.models import TaxpayerSiiCredentials
+            credentials_deleted = TaxpayerSiiCredentials.objects.filter(
+                company=company,
+                user=user
+            ).delete()
+
+            logger.info(f"✅ Usuario {user.email} desasociado de {company.business_name}")
+
+            return Response({
+                'success': True,
+                'message': f'Te has desasociado exitosamente de {company.business_name}',
+                'action': 'USER_REMOVED',
+                'details': {
+                    'company_id': company.id,
+                    'company_name': company.business_name,
+                    'user_role_deactivated': True,
+                    'credentials_deleted': credentials_deleted[0] > 0 if credentials_deleted else False,
+                    'company_deleted': False
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error in leave_company: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'INTERNAL_ERROR',
+                'message': f'Error interno: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['get'])
     def task_status(self, request, pk=None):
         """
@@ -402,9 +607,9 @@ def create_company_with_sii_data(request):
     {
         "business_name": "Mi Empresa",
         "tax_id": "77794858-k",
-        "password": "SiiPfufl574@#",
-        "email": "contacto@miempresa.cl",
-        "mobile_phone": "+56912345678"
+        "sii_password": "SiiPfufl574@#",
+        "email": "contacto@miempresa.cl",  // opcional
+        "mobile_phone": "+56912345678"     // opcional
     }
     """
     try:
@@ -420,48 +625,43 @@ def create_company_with_sii_data(request):
         
         validated_data = serializer.validated_data
         tax_id = validated_data['tax_id']
-        password = validated_data['password']
+        password = validated_data['sii_password']
         business_name = validated_data['business_name']
-        email = validated_data['email']
+        email = validated_data.get('email', '')
         mobile_phone = validated_data.get('mobile_phone', '')
         
         logger.info(f"🏢 Creando compañía con datos SII: {tax_id}")
         
-        # Verificar si la compañía ya existe
-        if Company.objects.filter(tax_id=tax_id).exists():
-            return Response({
-                "error": "COMPANY_EXISTS",
-                "message": f"Ya existe una compañía registrada con el RUT {tax_id}",
-                "timestamp": timezone.now().isoformat()
-            }, status=status.HTTP_409_CONFLICT)
-        
-        # Paso 1: Verificar credenciales SII usando configuración de ambiente
-        logger.info(f"🔍 Paso 1: Verificando credenciales SII para {tax_id}")
-        import os
-        use_real_service = True  # Forzar servicio real temporalmente
-        logger.info(f"🔧 Usando servicio real SII: {use_real_service}")
-        
-        # Extract RUT parts for service initialization
-        rut_parts = tax_id.split('-')
-        company_rut = rut_parts[0]
-        company_dv = rut_parts[1] if len(rut_parts) > 1 else '0'
-        
-        sii_service = SIIServiceV2(
-            company_rut=company_rut,
-            company_dv=company_dv,
-            password=password,
-            use_real_service=use_real_service
+        # Usar el servicio compartido que maneja tanto creación como asociación
+        from .services import CompanyCreationService
+
+        logger.info(f"🔍 Creando/asociando empresa {tax_id} para usuario {request.user.email}")
+
+        result = CompanyCreationService.create_company_from_sii_credentials(
+            user=request.user,
+            business_name=business_name,
+            tax_id=tax_id,
+            sii_password=password,
+            email=email,
+            mobile_phone=mobile_phone
         )
-        
-        try:
-            sii_service.authenticate()
-            contribuyente_data = sii_service.get_taxpayer_info()
-        finally:
-            # Cerrar servicio para liberar recursos
-            if hasattr(sii_service, 'close'):
-                sii_service.close()
-        
-        # Paso 2: Crear Company primero, luego TaxPayer vinculado
+
+        if result['success']:
+            return Response({
+                "status": "success",
+                "message": result['message'],
+                "company_data": result['company_data'],
+                "timestamp": timezone.now().isoformat()
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                "error": result.get('error', 'COMPANY_CREATION_ERROR'),
+                "message": result.get('message', 'Error desconocido'),
+                "details": result,
+                "timestamp": timezone.now().isoformat()
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except SIIAuthenticationError as e:
         logger.info(f"🏗️ Paso 2: Creando Company y TaxPayer para {tax_id}")
         
         # Crear la Company primero con datos básicos
@@ -500,8 +700,9 @@ def create_company_with_sii_data(request):
         logger.info(f"✅ TaxPayer creado y sincronizado: {taxpayer.razon_social}")
         
         # Sincronizar modelos relacionados que necesitan la company
-        taxpayer._sync_address_from_sii(contribuyente_data, company=company)
-        taxpayer._sync_activity_from_sii(contribuyente_data, company=company)
+        # TODO: Implementar métodos de sincronización de dirección y actividad
+        # taxpayer._sync_address_from_sii(contribuyente_data, company=company)
+        # taxpayer._sync_activity_from_sii(contribuyente_data, company=company)
         
         # Sincronizar algunos datos de la company desde taxpayer
         company.sync_taxpayer_data()
@@ -983,8 +1184,8 @@ def test_create_with_sii_no_auth(request):
         # Test data
         test_data = {
             "business_name": "Mi Empresa Test",
-            "tax_id": "77794858-k", 
-            "password": "SiiPfufl574@#",
+            "tax_id": "77794858-k",
+            "sii_password": "SiiPfufl574@#",
             "email": "test@miempresa.cl",
             "mobile_phone": "+56912345678"
         }
@@ -1004,27 +1205,26 @@ def test_create_with_sii_no_auth(request):
         
         validated_data = serializer.validated_data
         tax_id = validated_data['tax_id']
-        password = validated_data['password']
+        password = validated_data['sii_password']
         
-        # Test SII integration
-        import os
-        use_real_service = os.getenv('SII_USE_REAL_SERVICE', 'false').lower() == 'true'
-        
-        # Extract RUT parts for service initialization
-        rut_parts = tax_id.split('-')
-        company_rut = rut_parts[0]
-        company_dv = rut_parts[1] if len(rut_parts) > 1 else '0'
-        
-        sii_service = SIIServiceV2(
-            company_rut=company_rut,
-            company_dv=company_dv,
+        # Test SII integration using the correct factory method
+        sii_service = SIIServiceV2.crear_con_password(
+            tax_id=tax_id,
             password=password,
-            use_real_service=use_real_service
+            validar_cookies=True,
+            auto_relogin=True
         )
         
         try:
-            sii_service.authenticate()
-            contribuyente_data = sii_service.get_taxpayer_info()
+            response = sii_service.consultar_contribuyente()
+            if response.get('status') != 'success':
+                return Response({
+                    "error": "SII_AUTHENTICATION_FAILED",
+                    "message": f"Error consultando SII: {response.get('message', 'Error desconocido')}",
+                    "timestamp": timezone.now().isoformat()
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            contribuyente_data = response.get('datos_contribuyente', {})
         finally:
             if hasattr(sii_service, 'close'):
                 sii_service.close()

@@ -46,8 +46,8 @@ class CompanyWithSiiDataSerializer(serializers.Serializer):
     # Datos básicos de la compañía
     business_name = serializers.CharField(max_length=255, help_text="Nombre de fantasía")
     tax_id = serializers.CharField(max_length=12, help_text="RUT en formato 12345678-9")
-    password = serializers.CharField(max_length=200, help_text="Contraseña del SII")
-    email = serializers.EmailField(help_text="Email de contacto")
+    sii_password = serializers.CharField(max_length=200, help_text="Contraseña del SII")
+    email = serializers.EmailField(required=False, allow_blank=True, help_text="Email de contacto (opcional)")
     mobile_phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     
     def validate_tax_id(self, value):

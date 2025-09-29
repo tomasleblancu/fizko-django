@@ -169,40 +169,46 @@ def validate_email_list(value):
 def validate_phone_number(value):
     """
     Validates and normalizes Chilean phone number format.
-    Returns normalized format without + prefix.
+    Ensures exactly 11 digits total (56 + 9 digits).
+    Returns normalized format: 56XXXXXXXXX (11 digits total, no + prefix)
     """
     if not value:
         return value
 
-    # Clean input
-    phone_clean = str(value).strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    # Clean input: remove all non-numeric characters except +
+    phone_clean = re.sub(r'[^\d+]', '', str(value).strip())
 
-    # Remove + prefix if present
+    # Remove + prefix if present for processing
     if phone_clean.startswith('+'):
         phone_clean = phone_clean[1:]
 
-    # Chilean phone patterns and their normalized forms
+    # Chilean phone patterns and their normalized forms (all result in 11 digits)
     phone_patterns = [
-        (r'^56[0-9]{8,9}$', lambda x: x),  # Already correct format: 56XXXXXXXXX
-        (r'^09[0-9]{8}$', lambda x: f"569{x[2:]}"),  # Mobile: 09XXXXXXXX -> 569XXXXXXXX
-        (r'^2[0-9]{7,8}$', lambda x: f"562{x[1:]}"),  # Santiago landline: 2XXXXXXX -> 562XXXXXXX
-        (r'^[3-7][0-9]{7}$', lambda x: f"56{x}"),  # Regional landlines: XXXXXXX -> 56XXXXXXX
-        (r'^9[0-9]{8}$', lambda x: f"56{x}"),  # Mobile without 0: 9XXXXXXXX -> 569XXXXXXXX
+        # Already correct format: 56XXXXXXXXX (11 digits)
+        (r'^56[0-9]{9}$', lambda x: x),
+        # Mobile with 0: 569XXXXXXXX -> 569XXXXXXXX (11 digits)
+        (r'^569[0-9]{8}$', lambda x: f"56{x[2:]}"),
+        # Mobile: 09XXXXXXXX -> 569XXXXXXXX (11 digits)
+        (r'^09[0-9]{8}$', lambda x: f"569{x[2:]}"),
+        # Mobile without 0: 9XXXXXXXX -> 569XXXXXXXX (11 digits)
+        (r'^9[0-9]{8}$', lambda x: f"56{x}"),
+        # Santiago landline with 2: 2XXXXXXXX -> 562XXXXXXXX (11 digits)
+        (r'^2[0-9]{8}$', lambda x: f"56{x}"),
+        # Regional landlines: XXXXXXXX -> 56XXXXXXXX (10->11 digits)
+        (r'^[3-7][0-9]{7}$', lambda x: f"56{x}"),
     ]
 
     # Try to match and normalize
     for pattern, normalizer in phone_patterns:
         if re.match(pattern, phone_clean):
             normalized = normalizer(phone_clean)
-            # Final validation: must be 56 + 8-9 digits
-            if re.match(r'^56[0-9]{8,9}$', normalized):
+            # Final validation: must be exactly 11 digits (56 + 9 digits)
+            if re.match(r'^56[0-9]{9}$', normalized):
                 return normalized
 
     raise serializers.ValidationError(
-        "Formato de teléfono inválido. Use formato chileno: +56 9 XXXX XXXX o equivalente"
+        "Formato de teléfono inválido. Debe ser un número chileno válido que resulte en 11 dígitos (56 + 9 dígitos)"
     )
-
-    return value
 
 
 def validate_document_type_code(value):

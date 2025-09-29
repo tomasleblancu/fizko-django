@@ -1,0 +1,249 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}Archivos de Contexto - {{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Gestión de archivos de contexto para el agente</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+        <i class="fas fa-upload me-2"></i>
+        Subir Archivo
+    </button>
+    <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Archivos Asignados -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-paperclip me-2"></i>
+                    Archivos de Contexto Activos
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if active_files %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Archivo</th>
+                                    <th>Tipo</th>
+                                    <th>Estado</th>
+                                    <th>Prioridad</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assignment in active_files %}
+                                <tr>
+                                    <td>
+                                        <div>
+                                            <strong>{{ assignment.context_file.name }}</strong>
+                                            {% if assignment.context_file.description %}
+                                                <br><small class="text-muted">{{ assignment.context_file.description|truncatechars:80 }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ assignment.context_file.file_type|upper }}</span>
+                                    </td>
+                                    <td>
+                                        {% if assignment.context_file.status == 'processed' %}
+                                            <span class="badge bg-success">Procesado</span>
+                                        {% elif assignment.context_file.status == 'processing' %}
+                                            <span class="badge bg-warning">Procesando</span>
+                                        {% elif assignment.context_file.status == 'error' %}
+                                            <span class="badge bg-danger">Error</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ assignment.context_file.get_status_display }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ assignment.priority }}</span>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'chat:context_file_detail' assignment.context_file.id %}"
+                                               class="btn btn-outline-info" title="Ver detalles">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            <a href="{% url 'chat:toggle_context_file' agent.id assignment.context_file.id %}"
+                                               class="btn btn-outline-warning" title="Desactivar">
+                                                <i class="fas fa-pause"></i>
+                                            </a>
+                                            <a href="{% url 'chat:remove_context_file' agent.id assignment.context_file.id %}"
+                                               class="btn btn-outline-danger" title="Remover"
+                                               onclick="return confirm('¿Estás seguro de remover este archivo del agente?')">
+                                                <i class="fas fa-trash"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-file-alt text-muted fa-3x mb-3"></i>
+                        <h5 class="text-muted">No hay archivos de contexto asignados</h5>
+                        <p class="text-muted">Sube archivos para proporcionar contexto adicional al agente</p>
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                            <i class="fas fa-upload me-2"></i>
+                            Subir Primer Archivo
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Archivos Disponibles -->
+        {% if available_files %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-folder me-2"></i>
+                    Archivos Disponibles para Asignar
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Archivo</th>
+                                <th>Tipo</th>
+                                <th>Estado</th>
+                                <th>Subido</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in available_files %}
+                            <tr>
+                                <td>
+                                    <div>
+                                        <strong>{{ file.name }}</strong>
+                                        {% if file.description %}
+                                            <br><small class="text-muted">{{ file.description|truncatechars:80 }}</small>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ file.file_type|upper }}</span>
+                                </td>
+                                <td>
+                                    {% if file.status == 'processed' %}
+                                        <span class="badge bg-success">Procesado</span>
+                                    {% elif file.status == 'processing' %}
+                                        <span class="badge bg-warning">Procesando</span>
+                                    {% elif file.status == 'error' %}
+                                        <span class="badge bg-danger">Error</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ file.get_status_display }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small class="text-muted">{{ file.created_at|date:"d/m/Y H:i" }}</small>
+                                </td>
+                                <td>
+                                    {% if file.status == 'processed' %}
+                                        <a href="{% url 'chat:assign_context_file' agent.id file.id %}"
+                                           class="btn btn-sm btn-success">
+                                            <i class="fas fa-plus me-1"></i>
+                                            Asignar
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted">No disponible</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal para subir archivos -->
+<div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="uploadModalLabel">Subir Archivo de Contexto</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" enctype="multipart/form-data" action="{% url 'chat:upload_context_file' agent.id %}">
+                <div class="modal-body">
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label for="id_name" class="form-label">Nombre del archivo</label>
+                        <input type="text" class="form-control" id="id_name" name="name" required
+                               placeholder="Nombre descriptivo del archivo">
+                        <div class="form-text">Nombre que identificará este archivo</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="id_description" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="id_description" name="description" rows="3"
+                                  placeholder="Descripción del contenido del archivo"></textarea>
+                        <div class="form-text">Descripción opcional del contenido</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="id_file" class="form-label">Archivo</label>
+                        <input type="file" class="form-control" id="id_file" name="file" required
+                               accept=".json,.txt,.docx,.pdf">
+                        <div class="form-text">Archivos soportados: JSON, TXT, DOCX, PDF (máx. 50MB)</div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <small>
+                            <strong>Tipos de archivo soportados:</strong><br>
+                            • <strong>JSON:</strong> Datos estructurados<br>
+                            • <strong>TXT:</strong> Archivos de texto plano<br>
+                            • <strong>DOCX:</strong> Documentos de Word<br>
+                            • <strong>PDF:</strong> Documentos PDF<br>
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-upload me-2"></i>
+                        Subir Archivo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-rellenar el nombre del archivo cuando se selecciona
+document.getElementById('id_file').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    const nameInput = document.getElementById('id_name');
+
+    if (file && !nameInput.value) {
+        // Remover extensión y usar como nombre
+        const fileName = file.name.replace(/\.[^/.]+$/, "");
+        nameInput.value = fileName;
+    }
+});
+</script>
+{% endblock %}

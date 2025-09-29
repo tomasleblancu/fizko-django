@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, UserProfile, Role, UserRole
+from .models import User, UserProfile, Role, UserRole, TeamInvitation
 
 
 @admin.register(User)
@@ -42,6 +42,24 @@ class UserRoleAdmin(admin.ModelAdmin):
     list_display = ('user', 'role', 'company', 'active', 'created_at')
     list_filter = ('role', 'active', 'created_at')
     search_fields = ('user__email', 'role__name', 'company__name')
-    
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('user', 'role', 'company')
+
+
+@admin.register(TeamInvitation)
+class TeamInvitationAdmin(admin.ModelAdmin):
+    list_display = ('email', 'status', 'get_companies', 'role', 'invited_by', 'expires_at', 'created_at')
+    list_filter = ('status', 'role', 'created_at', 'expires_at')
+    search_fields = ('email', 'invited_by__email', 'role__name')
+    readonly_fields = ('token', 'created_at', 'updated_at')
+    filter_horizontal = ('companies',)
+
+    def get_companies(self, obj):
+        return ", ".join([company.display_name for company in obj.companies.all()])
+    get_companies.short_description = 'Companies'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'role', 'invited_by'
+        ).prefetch_related('companies')

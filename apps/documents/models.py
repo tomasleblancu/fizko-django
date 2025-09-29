@@ -105,6 +105,9 @@ class Document(TimeStampedModel):
     raw_data = models.JSONField(default=dict, blank=True, help_text="Datos originales del SII sin procesar")
     
     # Referencias (notas de crédito/débito)
+    reference_folio = models.CharField(max_length=255, blank=True, null=True)
+    reference_folio_type = models.CharField(max_length=255, blank=True, null=True)
+
     reference_document = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='references')
     reference_reason = models.CharField(max_length=255, blank=True)
     

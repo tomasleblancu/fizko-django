@@ -37,6 +37,6 @@ class DocumentAdmin(admin.ModelAdmin):
             'fields': ('sii_track_id', 'sii_response', 'xml_data', 'pdf_file')
         }),
         ('Referencias', {
-            'fields': ('reference_document', 'reference_reason')
+            'fields': ('reference_document', 'reference_reason', 'reference_folio', 'reference_folio_type')
         })
     )

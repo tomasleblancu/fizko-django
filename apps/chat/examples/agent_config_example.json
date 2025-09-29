@@ -1,0 +1,49 @@
+{
+  "name": "Asistente Contable Personalizado",
+  "agent_type": "custom_accounting",
+  "description": "Agente especializado en contabilidad chilena con herramientas personalizadas",
+
+  "model_name": "gpt-4.1-nano",
+  "temperature": 0.3,
+  "max_tokens": 2000,
+
+  "system_prompt": "Eres un experto contador chileno. Utilizas herramientas especializadas para ayudar con cálculos tributarios, búsqueda de documentos y análisis financiero. Siempre proporciona respuestas precisas basadas en la legislación chilena actual.",
+
+  "context_instructions": "- Usa las herramientas disponibles de manera proactiva\n- Siempre calcula impuestos usando la tasa de IVA chilena (19%)\n- Busca documentos relevantes cuando sea necesario\n- Proporciona explicaciones claras y concisas",
+
+  "available_tools": [
+    "example_search_documents",
+    "example_calculate_taxes"
+  ],
+
+  "context_files": [
+    "/path/to/tax_regulations.json",
+    "/path/to/company_procedures.md"
+  ],
+
+  "knowledge_base": {
+    "tax_rates": {
+      "iva": 0.19,
+      "primera_categoria": 0.27,
+      "global_complementario": "progresivo"
+    },
+    "document_types": {
+      "33": "Factura Electrónica",
+      "39": "Boleta Electrónica",
+      "61": "Nota de Crédito"
+    },
+    "important_dates": {
+      "f29_deadline": "día 12 del mes siguiente",
+      "annual_declaration": "30 de abril"
+    }
+  },
+
+  "requires_authentication": true,
+  "company_scope": true,
+  "allowed_roles": ["admin", "accountant", "manager"],
+  "max_calls_per_session": 50,
+
+  "created_by": "admin",
+  "tags": ["contabilidad", "chile", "impuestos", "dte"],
+  "version": "1.0"
+}

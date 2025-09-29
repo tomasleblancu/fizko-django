@@ -1,0 +1,392 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}{{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">{{ agent.get_agent_type_display }} - {{ agent.get_status_display }}</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'chat_admin:agent_edit' agent.id %}" class="btn btn-primary">
+        <i class="fas fa-edit me-2"></i>
+        Editar
+    </a>
+    <a href="{% url 'chat_admin:test_agent' agent.id %}" class="btn btn-success">
+        <i class="fas fa-play me-2"></i>
+        Probar
+    </a>
+    <a href="{% url 'chat_admin:agent_list' %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Agent Overview -->
+    <div class="col-md-8">
+        <!-- Información y Configuración -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    {{ agent.name }}
+                    <span class="badge bg-{% if agent.status == 'active' %}success{% elif agent.status == 'testing' %}warning{% else %}secondary{% endif %} ms-2">
+                        {{ agent.get_status_display }}
+                    </span>
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if agent.description %}
+                <p class="text-muted mb-3">{{ agent.description }}</p>
+                {% endif %}
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Tipo:</strong> <span class="badge bg-primary">{{ agent.get_agent_type_display }}</span><br>
+                        <strong>Modelo:</strong> <code>{{ agent.model_name }}</code><br>
+                        <strong>Temperatura:</strong> {{ agent.temperature }}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Max Tokens:</strong> {{ agent.max_tokens|default:"Sin límite" }}<br>
+                        <strong>Creado:</strong> {{ agent.created_at|date:"d/m/Y H:i" }}<br>
+                        <strong>Herramientas:</strong> <span class="badge bg-info">{{ tools|length }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompts -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Configuración de Prompts
+                </h5>
+                <a href="{% url 'chat_admin:create_prompt' agent.id %}" class="btn btn-sm btn-primary">
+                    <i class="fas fa-plus me-1"></i>
+                    Agregar Prompt
+                </a>
+            </div>
+            <div class="card-body">
+                <!-- System Prompt Principal (campo directo del agente) -->
+                {% if agent.system_prompt %}
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">
+                            <span class="badge bg-dark me-2">Base</span>
+                            Prompt Principal del Agente
+                        </h6>
+                    </div>
+                    <div class="bg-light p-3 rounded" style="max-height: 150px; overflow-y: auto;">
+                        <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85em;">{{ agent.system_prompt }}</pre>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if agent.context_instructions %}
+                <div class="mb-4">
+                    <h6 class="mb-2">
+                        <span class="badge bg-secondary me-2">Base</span>
+                        Instrucciones de Contexto del Agente
+                    </h6>
+                    <div class="bg-light p-3 rounded" style="max-height: 150px; overflow-y: auto;">
+                        <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.85em;">{{ agent.context_instructions }}</pre>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Tabla de Prompts Configurables -->
+                <hr class="my-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">
+                        <i class="fas fa-layer-group me-2"></i>
+                        Prompts Configurables
+                        <span class="badge bg-info ms-2">{{ prompts|length }}</span>
+                    </h6>
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Estos prompts se pueden activar/desactivar dinámicamente
+                    </small>
+                </div>
+                {% if prompts %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Tipo</th>
+                                <th>Estado</th>
+                                <th>Prioridad</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for prompt in prompts %}
+                            <tr>
+                                <td>
+                                    <strong>{{ prompt.name }}</strong>
+                                    {% if prompt.description %}
+                                        <br><small class="text-muted">{{ prompt.description|truncatechars:40 }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-{% if prompt.prompt_type == 'system' %}primary{% elif prompt.prompt_type == 'instruction' %}info{% elif prompt.prompt_type == 'example' %}warning{% else %}secondary{% endif %}">
+                                        {{ prompt.get_prompt_type_display }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if prompt.is_active %}
+                                        <span class="badge bg-success">Activo</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactivo</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-primary">{{ prompt.priority }}</span>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-info"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#viewPromptModal"
+                                                onclick="showPromptContent('{{ prompt.name|escapejs }}', `{{ prompt.content|escapejs }}`, '{{ prompt.get_prompt_type_display }}')"
+                                                title="Ver contenido">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <a href="{% url 'chat_admin:create_prompt' agent.id %}?edit={{ prompt.id }}"
+                                           class="btn btn-outline-primary" title="Editar">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button type="button" class="btn btn-outline-warning"
+                                                onclick="togglePrompt({{ prompt.id }}, {{ prompt.is_active|yesno:'false,true' }})"
+                                                title="{% if prompt.is_active %}Desactivar{% else %}Activar{% endif %}">
+                                            <i class="fas fa-{% if prompt.is_active %}pause{% else %}play{% endif %}"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger"
+                                                onclick="deletePrompt({{ prompt.id }}, '{{ prompt.name|escapejs }}')"
+                                                title="Eliminar">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-3">
+                    <i class="fas fa-file-alt fa-2x text-muted mb-2"></i>
+                    <p class="text-muted mb-0">No hay prompts adicionales configurados</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Gestión -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-cogs me-2"></i>
+                    Gestión
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{% url 'chat_admin:agent_context_files' agent.id %}" class="btn btn-outline-info">
+                        <i class="fas fa-file-alt me-2"></i>
+                        Archivos de Contexto
+                    </a>
+                    <a href="{% url 'chat_admin:agent_tools' agent.id %}" class="btn btn-outline-primary">
+                        <i class="fas fa-tools me-2"></i>
+                        Herramientas ({{ tools|length }})
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Herramientas Activas -->
+        {% if tools %}
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-tools me-2"></i>
+                    Herramientas Activas
+                </h6>
+            </div>
+            <div class="card-body">
+                {% for assignment in tools|slice:":4" %}
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <small class="fw-bold">{{ assignment.common_tool.display_name }}</small>
+                        <br>
+                        <small class="text-muted">{{ assignment.common_tool.category }}</small>
+                    </div>
+                    {% if assignment.is_enabled %}
+                    <i class="fas fa-check-circle text-success"></i>
+                    {% else %}
+                    <i class="fas fa-pause-circle text-warning"></i>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% if tools|length > 4 %}
+                <div class="text-center mt-3">
+                    <a href="{% url 'chat_admin:agent_tools' agent.id %}" class="btn btn-sm btn-outline-primary">
+                        Ver todas ({{ tools|length }})
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal para ver contenido del prompt -->
+<div class="modal fade" id="viewPromptModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-eye me-2"></i>
+                    <span id="modalPromptName">Prompt</span>
+                    <small class="text-muted ms-2">(<span id="modalPromptType"></span>)</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="border rounded p-3 bg-light" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="modalPromptContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showPromptContent(name, content, type) {
+    document.getElementById('modalPromptName').textContent = name;
+    document.getElementById('modalPromptType').textContent = type;
+    document.getElementById('modalPromptContent').textContent = content;
+}
+
+function togglePrompt(promptId, newStatus) {
+    const action = newStatus ? 'activar' : 'desactivar';
+    if (confirm(`¿Estás seguro de ${action} este prompt?`)) {
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                         document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                         getCookie('csrftoken');
+
+        fetch(`{% url 'chat_admin:toggle_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                is_active: newStatus
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(data.message || `Prompt ${action}do exitosamente`, 'success');
+                location.reload();
+            } else {
+                showNotification(data.error || `Error al ${action} el prompt`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification(`Error de conexión al ${action} el prompt`, 'error');
+        });
+    }
+}
+
+function deletePrompt(promptId, promptName) {
+    if (confirm(`¿Estás seguro de eliminar el prompt "${promptName}"? Esta acción no se puede deshacer.`)) {
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                         document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                         getCookie('csrftoken');
+
+        fetch(`{% url 'chat_admin:delete_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(data.message || 'Prompt eliminado exitosamente', 'success');
+                location.reload();
+            } else {
+                showNotification(data.error || 'Error al eliminar el prompt', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Error de conexión al eliminar el prompt', 'error');
+        });
+    }
+}
+
+function showNotification(message, type = 'info') {
+    const toastHtml = `
+        <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : 'success'} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'check-circle'} me-2"></i>
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+
+    const toastElement = toastContainer.lastElementChild;
+    const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
+    toast.show();
+
+    toastElement.addEventListener('hidden.bs.toast', function() {
+        this.remove();
+    });
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}
