@@ -667,29 +667,79 @@ class SendVerificationCodeView(APIView):
             print(f"Error sending email verification: {e}")
 
     def _send_phone_verification(self, user, code):
-        """Send WhatsApp verification code using Kapso service"""
+        """Send WhatsApp verification code directly via Kapso API (bypass supervisor)"""
         try:
-            from apps.chat.services.chat_service import chat_service
-            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+            import requests
+            from django.conf import settings
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            # Get Kapso configuration directly from settings
+            api_token = getattr(settings, 'KAPSO_API_TOKEN', None)
+            whatsapp_config_id = getattr(settings, 'WHATSAPP_CONFIG_ID', None)
+            base_url = getattr(settings, 'KAPSO_API_BASE_URL', 'https://app.kapso.ai/api/v1')
+
+            if not api_token:
+                logger.error("KAPSO_API_TOKEN not configured - cannot send WhatsApp verification")
+                print(f"WhatsApp verification failed: KAPSO_API_TOKEN not configured")
+                return
 
             # Format phone number for WhatsApp (add + prefix)
             phone_formatted = f"+{user.phone}"
 
-            result = chat_service.send_message(
-                service_type='whatsapp',
-                recipient=phone_formatted,
-                message=message
+            # Verification message
+            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+
+            logger.info(f"🚀 Sending WhatsApp verification code directly via Kapso API to {phone_formatted}")
+
+            # Simple direct API call to Kapso without templates or conversation setup
+            headers = {
+                'X-API-Key': api_token,
+                'Content-Type': 'application/json'
+            }
+
+            # Use the direct WhatsApp message endpoint
+            payload = {
+                'phone_number': phone_formatted,
+                'message_type': 'text',
+                'message': {
+                    'content': message
+                }
+            }
+
+            # Add whatsapp_config_id if available
+            if whatsapp_config_id:
+                payload['whatsapp_config_id'] = whatsapp_config_id
+
+            url = f'{base_url}/whatsapp/messages'
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
             )
 
-            if result.get('status') == 'error':
-                print(f"Error sending WhatsApp verification via Kapso: {result.get('error')}")
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
+                print(f"WhatsApp verification sent successfully via Kapso direct API to {phone_formatted}")
+                return
             else:
-                print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+                error_msg = f"Kapso API error {response.status_code}: {response.text[:200]}"
+                logger.error(f"❌ {error_msg}")
+                print(f"Error sending WhatsApp verification to {phone_formatted}: {error_msg}")
 
-        except ImportError:
-            # Chat service not available
-            print(f"Chat service not available for phone verification to {user.phone}")
+        except requests.exceptions.Timeout:
+            error_msg = "Timeout conectando con Kapso API"
+            logger.error(f"❌ {error_msg}")
+            print(f"Error sending WhatsApp verification: {error_msg}")
+        except ImportError as e:
+            logger.error(f"Import error in WhatsApp verification: {e}")
+            print(f"Requests library not available for phone verification to {user.phone}")
         except Exception as e:
+            logger.error(f"Unexpected error in WhatsApp verification: {e}")
             print(f"Error sending WhatsApp verification: {e}")
 
 
@@ -773,29 +823,79 @@ class ResendVerificationCodeView(APIView):
             print(f"Error sending email verification: {e}")
 
     def _send_phone_verification(self, user, code):
-        """Send WhatsApp verification code using Kapso service"""
+        """Send WhatsApp verification code directly via Kapso API (bypass supervisor)"""
         try:
-            from apps.chat.services.chat_service import chat_service
-            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+            import requests
+            from django.conf import settings
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            # Get Kapso configuration directly from settings
+            api_token = getattr(settings, 'KAPSO_API_TOKEN', None)
+            whatsapp_config_id = getattr(settings, 'WHATSAPP_CONFIG_ID', None)
+            base_url = getattr(settings, 'KAPSO_API_BASE_URL', 'https://app.kapso.ai/api/v1')
+
+            if not api_token:
+                logger.error("KAPSO_API_TOKEN not configured - cannot send WhatsApp verification")
+                print(f"WhatsApp verification failed: KAPSO_API_TOKEN not configured")
+                return
 
             # Format phone number for WhatsApp (add + prefix)
             phone_formatted = f"+{user.phone}"
 
-            result = chat_service.send_message(
-                service_type='whatsapp',
-                recipient=phone_formatted,
-                message=message
+            # Verification message
+            message = f"Tu código de verificación para Fizko es: {code}\n\nEste código expira en 15 minutos."
+
+            logger.info(f"🚀 Sending WhatsApp verification code directly via Kapso API to {phone_formatted}")
+
+            # Simple direct API call to Kapso without templates or conversation setup
+            headers = {
+                'X-API-Key': api_token,
+                'Content-Type': 'application/json'
+            }
+
+            # Use the direct WhatsApp message endpoint
+            payload = {
+                'phone_number': phone_formatted,
+                'message_type': 'text',
+                'message': {
+                    'content': message
+                }
+            }
+
+            # Add whatsapp_config_id if available
+            if whatsapp_config_id:
+                payload['whatsapp_config_id'] = whatsapp_config_id
+
+            url = f'{base_url}/whatsapp/messages'
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
             )
 
-            if result.get('status') == 'error':
-                print(f"Error sending WhatsApp verification via Kapso: {result.get('error')}")
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
+                print(f"WhatsApp verification sent successfully via Kapso direct API to {phone_formatted}")
+                return
             else:
-                print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+                error_msg = f"Kapso API error {response.status_code}: {response.text[:200]}"
+                logger.error(f"❌ {error_msg}")
+                print(f"Error sending WhatsApp verification to {phone_formatted}: {error_msg}")
 
-        except ImportError:
-            # Chat service not available
-            print(f"Chat service not available for phone verification to {user.phone}")
+        except requests.exceptions.Timeout:
+            error_msg = "Timeout conectando con Kapso API"
+            logger.error(f"❌ {error_msg}")
+            print(f"Error sending WhatsApp verification: {error_msg}")
+        except ImportError as e:
+            logger.error(f"Import error in WhatsApp verification: {e}")
+            print(f"Requests library not available for phone verification to {user.phone}")
         except Exception as e:
+            logger.error(f"Unexpected error in WhatsApp verification: {e}")
             print(f"Error sending WhatsApp verification: {e}")
 
 
