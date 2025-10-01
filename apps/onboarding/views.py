@@ -204,7 +204,6 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
             # Ejecutar las tareas de sincronización y creación de procesos al finalizar el onboarding
             initial_sync_result = None
-            historical_sync_result = None
             process_creation_result = None
 
             if company_id:
@@ -212,10 +211,8 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 process_creation_result = self._create_taxpayer_processes(company_id)
 
                 # 2. Sincronización inicial rápida (últimos 2 meses)
+                # NOTA: Esta tarea disparará automáticamente la sincronización histórica completa al finalizar
                 initial_sync_result = self._start_initial_dte_sync(company_id)
-
-                # 3. Sincronización histórica completa (todo el historial)
-                historical_sync_result = self._start_complete_historical_sync(company_id)
 
             # Marcar el onboarding como oficialmente finalizado
             finalized_step, created = OnboardingStep.objects.get_or_create(
@@ -248,11 +245,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 'company_result': company_result,
                 'sync_results': {
                     'initial_sync': initial_sync_result,
-                    'historical_sync': historical_sync_result,
                     'process_creation': process_creation_result
                 },
                 'finalized_at': timezone.now(),
-                'next_steps': 'Su historial contable completo se está procesando en segundo plano. Puede comenzar a usar la plataforma con los datos recientes ya disponibles.'
+                'next_steps': 'Su historial contable reciente se está procesando. Una vez completado, se iniciará automáticamente la sincronización completa del historial. Puede comenzar a usar la plataforma con los datos recientes disponibles.'
             })
             
         except Exception as e:
