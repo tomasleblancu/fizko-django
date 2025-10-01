@@ -194,25 +194,17 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             
             # Marcar onboarding como completado
             self.complete(request)
-            
-            # INICIAR SINCRONIZACIONES DE DTES al finalizar onboarding
+
+            # Obtener company_id y los resultados de inicialización que ya se dispararon automáticamente
             company_id = None
-            if company_result.get('company_data') and company_result['company_data'].get('company_id'):
-                company_id = company_result['company_data']['company_id']
+            initialization_results = None
+
+            if company_result.get('company_data'):
+                company_id = company_result['company_data'].get('company_id')
+                # Las tareas ya fueron creadas por CompanyCreationService, obtener sus resultados
+                initialization_results = company_result['company_data'].get('initialization_results')
             elif existing_user_company:
                 company_id = existing_user_company.id
-
-            # Ejecutar las tareas de sincronización y creación de procesos al finalizar el onboarding
-            initial_sync_result = None
-            process_creation_result = None
-
-            if company_id:
-                # 1. Crear procesos tributarios según configuración del TaxPayer (PRIMERO)
-                process_creation_result = self._create_taxpayer_processes(company_id)
-
-                # 2. Sincronización inicial rápida (últimos 2 meses)
-                # NOTA: Esta tarea disparará automáticamente la sincronización histórica completa al finalizar
-                initial_sync_result = self._start_initial_dte_sync(company_id)
 
             # Marcar el onboarding como oficialmente finalizado
             finalized_step, created = OnboardingStep.objects.get_or_create(
@@ -243,10 +235,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 'status': 'success',
                 'message': message,
                 'company_result': company_result,
-                'sync_results': {
-                    'initial_sync': initial_sync_result,
-                    'process_creation': process_creation_result
-                },
+                'sync_results': initialization_results,  # Resultados de las tareas ya creadas por el servicio
                 'finalized_at': timezone.now(),
                 'next_steps': 'Su historial contable reciente se está procesando. Una vez completado, se iniciará automáticamente la sincronización completa del historial. Puede comenzar a usar la plataforma con los datos recientes disponibles.'
             })
@@ -575,281 +564,6 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             if created:
                 print(f"✅ Rol '{role.name}' creado exitosamente")
 
-
-    def _start_initial_dte_sync(self, company_id):
-        """
-        Inicia sincronización RÁPIDA de DTEs recientes para feedback inmediato
-        Solo obtiene documentos de los últimos 2 meses para mostrar datos rápido
-        """
-        try:
-            from datetime import date, timedelta
-            from apps.companies.models import Company, BackgroundTaskTracker
-
-            # Obtener la empresa
-            company = Company.objects.get(id=company_id)
-            
-            # Calcular período de los últimos 2 meses para sync rápido
-            today = date.today()
-            fecha_hasta = today.strftime('%Y-%m-%d')
-            
-            # Ir 2 meses atrás
-            fecha_desde = (today - timedelta(days=60)).replace(day=1).strftime('%Y-%m-%d')
-            
-            # Importar la tarea de Celery para sincronización de PERÍODO
-            from apps.sii.tasks import sync_sii_documents_task
-            
-            # Enviar tarea a Celery para procesamiento asíncrono RÁPIDO
-            rut_parts = company.tax_id.split('-')
-            task_result = sync_sii_documents_task.delay(
-                company_rut=rut_parts[0],  # RUT sin guión
-                company_dv=rut_parts[1] if len(rut_parts) > 1 else 'K',  # DV
-                fecha_desde=fecha_desde,
-                fecha_hasta=fecha_hasta,
-                user_email=getattr(self.request.user, 'email', 'system@fizko.com'),
-                priority='high',  # Alta prioridad por ser onboarding
-                description=f'Sincronización inicial rápida onboarding - {company.business_name}',
-                trigger_full_sync=True  # CRUCIAL: Disparar sync completo al finalizar
-            )
-
-            # CREAR TRACKER para monitorear progreso
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=task_result,
-                task_name='sync_sii_documents_task',
-                display_name='Sincronizando documentos SII',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'initial',
-                    'fecha_desde': fecha_desde,
-                    'fecha_hasta': fecha_hasta
-                }
-            )
-            
-            return {
-                'status': 'success',
-                'message': 'Sincronización RÁPIDA de DTEs iniciada - se disparará historial completo al finalizar',
-                'task_id': task_result.id,
-                'company_id': company_id,
-                'sync_type': 'recent_period_with_full_trigger',
-                'sync_period': {
-                    'fecha_desde': fecha_desde,
-                    'fecha_hasta': fecha_hasta,
-                    'description': 'Últimos 2 meses'
-                },
-                'estimated_completion': '2-5 minutos para inicial, luego 15-30 minutos para historial completo',
-                'note': 'Sincronización rápida para mostrar datos inmediatos. Al finalizar, se disparará automáticamente la sincronización COMPLETA del historial desde inicio de actividades.'
-            }
-            
-        except Company.DoesNotExist:
-            return {
-                'error': 'COMPANY_NOT_FOUND',
-                'message': f'No se encontró la empresa con ID {company_id}',
-                'sync_status': 'failed'
-            }
-            
-        except ImportError as e:
-            return {
-                'error': 'TASK_IMPORT_ERROR', 
-                'message': f'Error importando tareas SII: {str(e)}',
-                'sync_status': 'failed'
-            }
-            
-        except Exception as e:
-            import traceback
-            return {
-                'error': 'DTE_SYNC_ERROR',
-                'message': f'Error iniciando sincronización de DTEs: {str(e)}',
-                'sync_status': 'failed',
-                'traceback': traceback.format_exc()
-            }
-
-    def _start_complete_historical_sync(self, company_id):
-        """
-        Inicia sincronización COMPLETA del historial de DTEs y formularios tributarios
-        Obtiene TODOS los documentos y formularios desde el inicio de actividades
-        Se ejecuta al FINALIZAR el onboarding completo
-        """
-        try:
-            from apps.companies.models import Company, BackgroundTaskTracker
-
-            # Obtener la empresa
-            company = Company.objects.get(id=company_id)
-            
-            # Importar las tareas de Celery para sincronización COMPLETA
-            from apps.sii.tasks import sync_sii_documents_full_history_task, sync_all_historical_forms_task
-
-            # Enviar tareas a Celery para procesamiento asíncrono COMPLETO
-            rut_parts = company.tax_id.split('-')
-            company_rut = rut_parts[0]  # RUT sin guión
-            company_dv = rut_parts[1] if len(rut_parts) > 1 else 'K'  # DV
-            user_email = getattr(self.request.user, 'email', 'system@fizko.com')
-
-            # 1. Sincronización de documentos DTEs históricos
-            documents_task_result = sync_sii_documents_full_history_task.delay(
-                company_rut=company_rut,
-                company_dv=company_dv,
-                user_email=user_email
-            )
-
-            # CREAR TRACKER para documentos históricos
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=documents_task_result,
-                task_name='sync_sii_documents_full_history_task',
-                display_name='Sincronizando historial completo SII',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'full_history',
-                    'task_type': 'documents'
-                }
-            )
-
-            # 2. Sincronización de formularios tributarios históricos
-            forms_task_result = sync_all_historical_forms_task.delay(
-                company_rut=company_rut,
-                company_dv=company_dv,
-                user_email=user_email,
-                form_type='f29'
-            )
-
-            # CREAR TRACKER para formularios históricos
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=forms_task_result,
-                task_name='sync_all_historical_forms_task',
-                display_name='Sincronizando formularios históricos',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'full_history',
-                    'task_type': 'forms',
-                    'form_type': 'f29'
-                }
-            )
-
-            return {
-                'status': 'success',
-                'message': 'Sincronización COMPLETA del historial iniciada - procesando TODOS los documentos y formularios históricos',
-                'documents_task_id': documents_task_result.id,
-                'forms_task_id': forms_task_result.id,
-                'company_id': company_id,
-                'sync_type': 'full_history',
-                'sync_period': {
-                    'description': 'Historial completo desde inicio de actividades'
-                },
-                'estimated_completion': '20-40 minutos (depende del volumen histórico)',
-                'note': 'Esta sincronización obtendrá todos los DTEs y formularios tributarios disponibles desde el inicio de actividades de la empresa',
-                'tasks': {
-                    'documents': {
-                        'task_id': documents_task_result.id,
-                        'description': 'Documentos electrónicos (DTEs) históricos'
-                    },
-                    'forms': {
-                        'task_id': forms_task_result.id,
-                        'description': 'Formularios tributarios (F29) históricos'
-                    }
-                }
-            }
-            
-        except Company.DoesNotExist:
-            return {
-                'error': 'COMPANY_NOT_FOUND',
-                'message': f'No se encontró la empresa con ID {company_id}',
-                'sync_status': 'failed'
-            }
-            
-        except ImportError as e:
-            return {
-                'error': 'TASK_IMPORT_ERROR', 
-                'message': f'Error importando tareas SII: {str(e)}',
-                'sync_status': 'failed'
-            }
-            
-        except Exception as e:
-            import traceback
-            return {
-                'error': 'HISTORICAL_SYNC_ERROR',
-                'message': f'Error iniciando sincronización histórica completa: {str(e)}',
-                'sync_status': 'failed',
-                'traceback': traceback.format_exc()
-            }
-
-    def _create_taxpayer_processes(self, company_id):
-        """
-        Crea los procesos tributarios según la configuración del TaxPayer
-        Se ejecuta al FINALIZAR el onboarding para preparar los procesos tributarios
-        """
-        try:
-            from apps.companies.models import Company, BackgroundTaskTracker
-
-            # Verificar que la empresa tenga TaxPayer
-            company = Company.objects.get(id=company_id)
-
-            # Verificar que exista el TaxPayer
-            if not hasattr(company, 'taxpayer'):
-                return {
-                    'status': 'skipped',
-                    'message': 'Empresa sin TaxPayer configurado',
-                    'company_id': company_id
-                }
-
-            # Importar la tarea de Celery para crear procesos
-            from apps.tasks.tasks.process_management import create_processes_from_taxpayer_settings
-
-            # Enviar tarea a Celery para procesamiento asíncrono
-            task_result = create_processes_from_taxpayer_settings.delay(company_id=company_id)
-
-            # CREAR TRACKER para monitorear progreso
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=task_result,
-                task_name='create_processes_from_taxpayer_settings',
-                display_name='Creando procesos tributarios',
-                metadata={'company_id': company_id}
-            )
-
-            # Obtener configuración actual del TaxPayer para informar
-            taxpayer = company.taxpayer
-            process_settings = taxpayer.get_process_settings()
-
-            enabled_processes = []
-            if process_settings.get('f29_monthly', False):
-                enabled_processes.append('F29 Mensual')
-            if process_settings.get('f22_annual', False):
-                enabled_processes.append('F22 Anual')
-            if process_settings.get('f3323_quarterly', False):
-                enabled_processes.append('F3323 Trimestral')
-
-            return {
-                'status': 'success',
-                'message': 'Creación de procesos tributarios iniciada',
-                'task_id': task_result.id,
-                'company_id': company_id,
-                'taxpayer_rut': company.tax_id,
-                'process_settings': process_settings,
-                'enabled_processes': enabled_processes,
-                'description': f'Creando procesos para: {", ".join(enabled_processes) if enabled_processes else "Ninguno habilitado"}'
-            }
-
-        except Company.DoesNotExist:
-            return {
-                'error': 'COMPANY_NOT_FOUND',
-                'message': f'No se encontró empresa con ID {company_id}',
-                'process_creation_status': 'failed'
-            }
-        except ImportError as e:
-            return {
-                'error': 'CELERY_IMPORT_ERROR',
-                'message': f'Error importando tarea de creación de procesos: {str(e)}',
-                'process_creation_status': 'failed'
-            }
-        except Exception as e:
-            import traceback
-            return {
-                'error': 'PROCESS_CREATION_ERROR',
-                'message': f'Error iniciando creación de procesos: {str(e)}',
-                'process_creation_status': 'failed',
-                'traceback': traceback.format_exc()
-            }
 
     @action(detail=False, methods=['post'])
     def fix_incomplete_onboarding(self, request):
