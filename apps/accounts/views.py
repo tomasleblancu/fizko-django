@@ -703,56 +703,32 @@ class SendVerificationCodeView(APIView):
                 'Content-Type': 'application/json'
             }
 
-            # Step 1: Try to find existing conversation for this phone number
-            conversations_response = requests.get(
+            # Always create a new conversation for verification codes (ensures clean separation)
+            logger.info(f"📞 Creating NEW conversation for verification to {phone_formatted}")
+
+            conv_payload = {
+                'phone_number': phone_formatted,
+                'whatsapp_config_id': whatsapp_config_id
+            }
+
+            conv_response = requests.post(
                 f'{base_url}/whatsapp_conversations',
                 headers=headers,
-                params={'whatsapp_config_id': whatsapp_config_id},
+                json=conv_payload,
                 timeout=30
             )
 
-            conversation_id = None
+            if conv_response.status_code in [200, 201]:
+                conv_result = conv_response.json()
+                conversation_id = conv_result.get('id')
+                logger.info(f"✅ Created new verification conversation {conversation_id} for {phone_formatted}")
+            else:
+                error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
+                logger.error(f"❌ {error_msg}")
+                print(f"Error creating WhatsApp conversation: {error_msg}")
+                return
 
-            if conversations_response.status_code == 200:
-                conversations_data = conversations_response.json()
-                conversations = conversations_data.get('data', [])
-
-                # Look for existing conversation with this phone number
-                target_phone = phone_formatted.replace('+', '').replace(' ', '')
-                for conv in conversations:
-                    conv_phone = conv.get('phone_number', '').replace('+', '').replace(' ', '')
-                    if target_phone == conv_phone:
-                        conversation_id = conv.get('id')
-                        logger.info(f"📞 Found existing conversation {conversation_id} for {phone_formatted}")
-                        break
-
-            # Step 2: If no existing conversation, create a new one
-            if not conversation_id:
-                logger.info(f"📞 Creating new conversation for {phone_formatted}")
-
-                conv_payload = {
-                    'phone_number': phone_formatted,
-                    'whatsapp_config_id': whatsapp_config_id
-                }
-
-                conv_response = requests.post(
-                    f'{base_url}/whatsapp_conversations',
-                    headers=headers,
-                    json=conv_payload,
-                    timeout=30
-                )
-
-                if conv_response.status_code in [200, 201]:
-                    conv_result = conv_response.json()
-                    conversation_id = conv_result.get('id')
-                    logger.info(f"✅ Created new conversation {conversation_id} for {phone_formatted}")
-                else:
-                    error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
-                    logger.error(f"❌ {error_msg}")
-                    print(f"Error creating WhatsApp conversation: {error_msg}")
-                    return
-
-            # Step 3: Send message in the conversation
+            # Send verification message in the new conversation
             if conversation_id:
                 message_payload = {
                     'message': {
@@ -908,56 +884,32 @@ class ResendVerificationCodeView(APIView):
                 'Content-Type': 'application/json'
             }
 
-            # Step 1: Try to find existing conversation for this phone number
-            conversations_response = requests.get(
+            # Always create a new conversation for verification codes (ensures clean separation)
+            logger.info(f"📞 Creating NEW conversation for verification to {phone_formatted}")
+
+            conv_payload = {
+                'phone_number': phone_formatted,
+                'whatsapp_config_id': whatsapp_config_id
+            }
+
+            conv_response = requests.post(
                 f'{base_url}/whatsapp_conversations',
                 headers=headers,
-                params={'whatsapp_config_id': whatsapp_config_id},
+                json=conv_payload,
                 timeout=30
             )
 
-            conversation_id = None
+            if conv_response.status_code in [200, 201]:
+                conv_result = conv_response.json()
+                conversation_id = conv_result.get('id')
+                logger.info(f"✅ Created new verification conversation {conversation_id} for {phone_formatted}")
+            else:
+                error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
+                logger.error(f"❌ {error_msg}")
+                print(f"Error creating WhatsApp conversation: {error_msg}")
+                return
 
-            if conversations_response.status_code == 200:
-                conversations_data = conversations_response.json()
-                conversations = conversations_data.get('data', [])
-
-                # Look for existing conversation with this phone number
-                target_phone = phone_formatted.replace('+', '').replace(' ', '')
-                for conv in conversations:
-                    conv_phone = conv.get('phone_number', '').replace('+', '').replace(' ', '')
-                    if target_phone == conv_phone:
-                        conversation_id = conv.get('id')
-                        logger.info(f"📞 Found existing conversation {conversation_id} for {phone_formatted}")
-                        break
-
-            # Step 2: If no existing conversation, create a new one
-            if not conversation_id:
-                logger.info(f"📞 Creating new conversation for {phone_formatted}")
-
-                conv_payload = {
-                    'phone_number': phone_formatted,
-                    'whatsapp_config_id': whatsapp_config_id
-                }
-
-                conv_response = requests.post(
-                    f'{base_url}/whatsapp_conversations',
-                    headers=headers,
-                    json=conv_payload,
-                    timeout=30
-                )
-
-                if conv_response.status_code in [200, 201]:
-                    conv_result = conv_response.json()
-                    conversation_id = conv_result.get('id')
-                    logger.info(f"✅ Created new conversation {conversation_id} for {phone_formatted}")
-                else:
-                    error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
-                    logger.error(f"❌ {error_msg}")
-                    print(f"Error creating WhatsApp conversation: {error_msg}")
-                    return
-
-            # Step 3: Send message in the conversation
+            # Send verification message in the new conversation
             if conversation_id:
                 message_payload = {
                     'message': {
