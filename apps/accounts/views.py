@@ -685,6 +685,11 @@ class SendVerificationCodeView(APIView):
                 print(f"WhatsApp verification failed: KAPSO_API_TOKEN not configured")
                 return
 
+            if not whatsapp_config_id:
+                logger.error("WHATSAPP_CONFIG_ID not configured - cannot send WhatsApp verification")
+                print(f"WhatsApp verification failed: WHATSAPP_CONFIG_ID not configured")
+                return
+
             # Format phone number for WhatsApp (add + prefix)
             phone_formatted = f"+{user.phone}"
 
@@ -693,43 +698,87 @@ class SendVerificationCodeView(APIView):
 
             logger.info(f"🚀 Sending WhatsApp verification code directly via Kapso API to {phone_formatted}")
 
-            # Simple direct API call to Kapso without templates or conversation setup
             headers = {
                 'X-API-Key': api_token,
                 'Content-Type': 'application/json'
             }
 
-            # Use the direct WhatsApp message endpoint
-            payload = {
-                'phone_number': phone_formatted,
-                'message_type': 'text',
-                'message': {
-                    'content': message
-                }
-            }
-
-            # Add whatsapp_config_id if available
-            if whatsapp_config_id:
-                payload['whatsapp_config_id'] = whatsapp_config_id
-
-            url = f'{base_url}/whatsapp/messages'
-
-            response = requests.post(
-                url,
+            # Step 1: Try to find existing conversation for this phone number
+            conversations_response = requests.get(
+                f'{base_url}/whatsapp_conversations',
                 headers=headers,
-                json=payload,
+                params={'whatsapp_config_id': whatsapp_config_id},
                 timeout=30
             )
 
-            if response.status_code in [200, 201]:
-                result = response.json()
-                logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
-                print(f"WhatsApp verification sent successfully via Kapso direct API to {phone_formatted}")
-                return
+            conversation_id = None
+
+            if conversations_response.status_code == 200:
+                conversations_data = conversations_response.json()
+                conversations = conversations_data.get('data', [])
+
+                # Look for existing conversation with this phone number
+                target_phone = phone_formatted.replace('+', '').replace(' ', '')
+                for conv in conversations:
+                    conv_phone = conv.get('phone_number', '').replace('+', '').replace(' ', '')
+                    if target_phone == conv_phone:
+                        conversation_id = conv.get('id')
+                        logger.info(f"📞 Found existing conversation {conversation_id} for {phone_formatted}")
+                        break
+
+            # Step 2: If no existing conversation, create a new one
+            if not conversation_id:
+                logger.info(f"📞 Creating new conversation for {phone_formatted}")
+
+                conv_payload = {
+                    'phone_number': phone_formatted,
+                    'whatsapp_config_id': whatsapp_config_id
+                }
+
+                conv_response = requests.post(
+                    f'{base_url}/whatsapp_conversations',
+                    headers=headers,
+                    json=conv_payload,
+                    timeout=30
+                )
+
+                if conv_response.status_code in [200, 201]:
+                    conv_result = conv_response.json()
+                    conversation_id = conv_result.get('id')
+                    logger.info(f"✅ Created new conversation {conversation_id} for {phone_formatted}")
+                else:
+                    error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"Error creating WhatsApp conversation: {error_msg}")
+                    return
+
+            # Step 3: Send message in the conversation
+            if conversation_id:
+                message_payload = {
+                    'message': {
+                        'content': message,
+                        'message_type': 'text'
+                    }
+                }
+
+                message_response = requests.post(
+                    f'{base_url}/whatsapp_conversations/{conversation_id}/whatsapp_messages',
+                    headers=headers,
+                    json=message_payload,
+                    timeout=30
+                )
+
+                if message_response.status_code in [200, 201]:
+                    logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
+                    print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+                    return
+                else:
+                    error_msg = f"Failed to send message: {message_response.status_code} - {message_response.text[:200]}"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"Error sending WhatsApp message: {error_msg}")
             else:
-                error_msg = f"Kapso API error {response.status_code}: {response.text[:200]}"
-                logger.error(f"❌ {error_msg}")
-                print(f"Error sending WhatsApp verification to {phone_formatted}: {error_msg}")
+                logger.error("❌ No conversation ID available for sending message")
+                print(f"Error: No conversation available for WhatsApp verification")
 
         except requests.exceptions.Timeout:
             error_msg = "Timeout conectando con Kapso API"
@@ -841,6 +890,11 @@ class ResendVerificationCodeView(APIView):
                 print(f"WhatsApp verification failed: KAPSO_API_TOKEN not configured")
                 return
 
+            if not whatsapp_config_id:
+                logger.error("WHATSAPP_CONFIG_ID not configured - cannot send WhatsApp verification")
+                print(f"WhatsApp verification failed: WHATSAPP_CONFIG_ID not configured")
+                return
+
             # Format phone number for WhatsApp (add + prefix)
             phone_formatted = f"+{user.phone}"
 
@@ -849,43 +903,87 @@ class ResendVerificationCodeView(APIView):
 
             logger.info(f"🚀 Sending WhatsApp verification code directly via Kapso API to {phone_formatted}")
 
-            # Simple direct API call to Kapso without templates or conversation setup
             headers = {
                 'X-API-Key': api_token,
                 'Content-Type': 'application/json'
             }
 
-            # Use the direct WhatsApp message endpoint
-            payload = {
-                'phone_number': phone_formatted,
-                'message_type': 'text',
-                'message': {
-                    'content': message
-                }
-            }
-
-            # Add whatsapp_config_id if available
-            if whatsapp_config_id:
-                payload['whatsapp_config_id'] = whatsapp_config_id
-
-            url = f'{base_url}/whatsapp/messages'
-
-            response = requests.post(
-                url,
+            # Step 1: Try to find existing conversation for this phone number
+            conversations_response = requests.get(
+                f'{base_url}/whatsapp_conversations',
                 headers=headers,
-                json=payload,
+                params={'whatsapp_config_id': whatsapp_config_id},
                 timeout=30
             )
 
-            if response.status_code in [200, 201]:
-                result = response.json()
-                logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
-                print(f"WhatsApp verification sent successfully via Kapso direct API to {phone_formatted}")
-                return
+            conversation_id = None
+
+            if conversations_response.status_code == 200:
+                conversations_data = conversations_response.json()
+                conversations = conversations_data.get('data', [])
+
+                # Look for existing conversation with this phone number
+                target_phone = phone_formatted.replace('+', '').replace(' ', '')
+                for conv in conversations:
+                    conv_phone = conv.get('phone_number', '').replace('+', '').replace(' ', '')
+                    if target_phone == conv_phone:
+                        conversation_id = conv.get('id')
+                        logger.info(f"📞 Found existing conversation {conversation_id} for {phone_formatted}")
+                        break
+
+            # Step 2: If no existing conversation, create a new one
+            if not conversation_id:
+                logger.info(f"📞 Creating new conversation for {phone_formatted}")
+
+                conv_payload = {
+                    'phone_number': phone_formatted,
+                    'whatsapp_config_id': whatsapp_config_id
+                }
+
+                conv_response = requests.post(
+                    f'{base_url}/whatsapp_conversations',
+                    headers=headers,
+                    json=conv_payload,
+                    timeout=30
+                )
+
+                if conv_response.status_code in [200, 201]:
+                    conv_result = conv_response.json()
+                    conversation_id = conv_result.get('id')
+                    logger.info(f"✅ Created new conversation {conversation_id} for {phone_formatted}")
+                else:
+                    error_msg = f"Failed to create conversation: {conv_response.status_code} - {conv_response.text[:200]}"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"Error creating WhatsApp conversation: {error_msg}")
+                    return
+
+            # Step 3: Send message in the conversation
+            if conversation_id:
+                message_payload = {
+                    'message': {
+                        'content': message,
+                        'message_type': 'text'
+                    }
+                }
+
+                message_response = requests.post(
+                    f'{base_url}/whatsapp_conversations/{conversation_id}/whatsapp_messages',
+                    headers=headers,
+                    json=message_payload,
+                    timeout=30
+                )
+
+                if message_response.status_code in [200, 201]:
+                    logger.info(f"✅ WhatsApp verification sent successfully to {phone_formatted}")
+                    print(f"WhatsApp verification sent successfully via Kapso to {phone_formatted}")
+                    return
+                else:
+                    error_msg = f"Failed to send message: {message_response.status_code} - {message_response.text[:200]}"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"Error sending WhatsApp message: {error_msg}")
             else:
-                error_msg = f"Kapso API error {response.status_code}: {response.text[:200]}"
-                logger.error(f"❌ {error_msg}")
-                print(f"Error sending WhatsApp verification to {phone_formatted}: {error_msg}")
+                logger.error("❌ No conversation ID available for sending message")
+                print(f"Error: No conversation available for WhatsApp verification")
 
         except requests.exceptions.Timeout:
             error_msg = "Timeout conectando con Kapso API"
