@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 from .models import (
     WhatsAppConfig, WhatsAppConversation, WhatsAppMessage,
-    WebhookEvent, MessageTemplate
+    WebhookEvent, MessageTemplate, Conversation, ConversationMessage
 )
 
 
@@ -234,3 +234,99 @@ class MessageTemplateAdmin(admin.ModelAdmin):
             template.save()
         self.message_user(request, f"{queryset.count()} plantillas duplicadas.")
     duplicate_template.short_description = "Duplicar plantillas"
+
+
+class ConversationMessageInline(admin.TabularInline):
+    model = ConversationMessage
+    extra = 0
+    readonly_fields = ['created_at']
+    fields = ['role', 'content', 'agent_name', 'created_at']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by('created_at')
+
+
+@admin.register(Conversation)
+class ConversationAdmin(admin.ModelAdmin):
+    list_display = ['title_display', 'user', 'agent_name', 'status', 'messages_count', 'created_at', 'updated_at']
+    list_filter = ['status', 'agent_name', 'created_at']
+    search_fields = ['title', 'user__email', 'user__first_name', 'user__last_name']
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    inlines = [ConversationMessageInline]
+
+    fieldsets = (
+        ('Información Básica', {
+            'fields': ('id', 'user', 'agent_name', 'title', 'status')
+        }),
+        ('Metadata', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Fechas', {
+            'fields': ('created_at', 'updated_at', 'ended_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+    def title_display(self, obj):
+        title = obj.title or f"Conversación con {obj.agent_name}"
+        if len(title) > 50:
+            return title[:47] + "..."
+        return title
+    title_display.short_description = 'Título'
+
+    def messages_count(self, obj):
+        return obj.messages.count()
+    messages_count.short_description = 'Mensajes'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user').prefetch_related('messages')
+
+    actions = ['end_conversations', 'archive_conversations']
+
+    def end_conversations(self, request, queryset):
+        from django.utils import timezone
+        count = queryset.filter(status='active').update(status='ended', ended_at=timezone.now())
+        self.message_user(request, f"{count} conversaciones finalizadas.")
+    end_conversations.short_description = "Finalizar conversaciones"
+
+    def archive_conversations(self, request, queryset):
+        count = queryset.update(status='archived')
+        self.message_user(request, f"{count} conversaciones archivadas.")
+    archive_conversations.short_description = "Archivar conversaciones"
+
+
+@admin.register(ConversationMessage)
+class ConversationMessageAdmin(admin.ModelAdmin):
+    list_display = ['conversation_info', 'role', 'content_preview', 'agent_name', 'created_at']
+    list_filter = ['role', 'agent_name', 'created_at']
+    search_fields = ['content', 'conversation__title', 'conversation__user__email']
+    readonly_fields = ['created_at']
+
+    fieldsets = (
+        ('Información del Mensaje', {
+            'fields': ('conversation', 'role', 'content', 'agent_name')
+        }),
+        ('Metadata', {
+            'fields': ('token_count', 'metadata'),
+            'classes': ('collapse',)
+        }),
+        ('Información de Sistema', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        })
+    )
+
+    def conversation_info(self, obj):
+        title = obj.conversation.title or f"Conversación {obj.conversation.id}"
+        return f"{title} - {obj.conversation.user.email if obj.conversation.user else 'Sin usuario'}"
+    conversation_info.short_description = 'Conversación'
+
+    def content_preview(self, obj):
+        if len(obj.content) > 100:
+            return obj.content[:97] + "..."
+        return obj.content
+    content_preview.short_description = 'Contenido'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('conversation', 'conversation__user')

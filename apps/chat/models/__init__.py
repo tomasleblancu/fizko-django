@@ -31,6 +31,12 @@ from .context_files import (
     ContextFileProcessingLog
 )
 
+# Importar modelos de conversaciones
+from .conversation import (
+    Conversation,
+    ConversationMessage
+)
+
 __all__ = [
     # Modelos WhatsApp
     'WhatsAppConfig',
@@ -56,4 +62,8 @@ __all__ = [
     'ContextFile',
     'AgentContextAssignment',
     'ContextFileProcessingLog',
+
+    # Modelos de conversaciones
+    'Conversation',
+    'ConversationMessage',
 ]

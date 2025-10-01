@@ -188,16 +188,24 @@ class Supervisor:
 
         agent_name = result.content.strip().lower()
         logger.info(f"Supervisor decidió: '{agent_name}'")
+        logger.info(f"Agentes disponibles: {list(self.agents.keys())}")
 
         if agent_name in self.agents:
-            logger.info(f"Redirigiendo a agente: {agent_name}")
+            logger.info(f"✅ Redirigiendo a agente válido: {agent_name}")
             return agent_name
         elif agent_name == "end":
-            logger.info("Terminando conversación")
+            logger.info("✅ Terminando conversación")
             return "END"
         else:
-            logger.info(f"Agente no reconocido '{agent_name}', usando general por defecto")
-            return "general"  # Por defecto usar el agente general
+            logger.warning(f"❌ Agente no reconocido '{agent_name}' - agentes disponibles: {list(self.agents.keys())}")
+            # Usar el primer agente disponible como fallback
+            if self.agents:
+                fallback_agent = list(self.agents.keys())[0]
+                logger.info(f"🔄 Usando fallback: {fallback_agent}")
+                return fallback_agent
+            else:
+                logger.error("💥 No hay agentes disponibles - terminando conversación")
+                return "END"
 
     def get_agents_info(self) -> Dict[str, Any]:
         """Retorna información de los agentes disponibles para metadata"""
@@ -263,7 +271,11 @@ class MultiAgentSystem:
         # Agregar nodos
         workflow.add_node("supervisor", self.supervisor.run)
 
+        # Log de agentes disponibles para debugging
+        logger.info(f"Agentes disponibles para el grafo: {list(self.supervisor.agents.keys())}")
+
         for agent_name, agent in self.supervisor.agents.items():
+            logger.info(f"Agregando nodo '{agent_name}' al grafo")
             workflow.add_node(agent_name, agent.run)
 
         # Definir el flujo - agregar edge desde START al supervisor
@@ -276,6 +288,8 @@ class MultiAgentSystem:
         # Construir mapping dinámico de agentes
         agent_mapping = {agent_name: agent_name for agent_name in self.supervisor.agents.keys()}
         agent_mapping["END"] = END
+
+        logger.info(f"Mapping de agentes para routing: {agent_mapping}")
 
         workflow.add_conditional_edges(
             "supervisor",
@@ -294,13 +308,32 @@ class MultiAgentSystem:
         try:
             logger.info(f"Procesando mensaje: {message}")
 
+            # Construir lista de mensajes incluyendo historial si está disponible
+            messages = []
+
+            # Agregar historial de conversación si está disponible
+            if metadata and 'conversation_history' in metadata:
+                conversation_history = metadata['conversation_history']
+                logger.info(f"Incluyendo historial de {len(conversation_history)} mensajes")
+
+                for hist_msg in conversation_history:
+                    if hist_msg['role'] == 'user':
+                        messages.append(HumanMessage(content=hist_msg['content']))
+                    elif hist_msg['role'] == 'assistant':
+                        messages.append(AIMessage(content=hist_msg['content']))
+                    elif hist_msg['role'] == 'system':
+                        messages.append(SystemMessage(content=hist_msg['content']))
+
+            # Agregar mensaje actual
+            messages.append(HumanMessage(content=message))
+
             initial_state = {
-                "messages": [HumanMessage(content=message)],
+                "messages": messages,
                 "next_agent": "",
                 "metadata": metadata or {}
             }
 
-            logger.info(f"Estado inicial: {initial_state}")
+            logger.info(f"Estado inicial con {len(messages)} mensajes (incluyendo historial)")
 
             # Ejecutar el workflow
             result = self.graph.invoke(initial_state)

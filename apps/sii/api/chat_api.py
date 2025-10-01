@@ -18,7 +18,7 @@ from rest_framework import filters
 
 from apps.chat.models import (
     WhatsAppConfig, WhatsAppConversation, WhatsAppMessage,
-    WebhookEvent, MessageTemplate
+    WebhookEvent, MessageTemplate, Conversation, ConversationMessage
 )
 from apps.chat.serializers import (
     WhatsAppConfigSerializer, WhatsAppConversationSerializer,
@@ -477,6 +477,7 @@ class TestResponseView(APIView):
         """Prueba el sistema de respuesta con un mensaje usando el supervisor multi-agente"""
         try:
             message = request.data.get('message')
+            conversation_id = request.data.get('conversation_id')
             company_info = request.data.get('company_info', {})
             sender_info = request.data.get('sender_info', {})
 
@@ -500,12 +501,15 @@ class TestResponseView(APIView):
                 ).select_related('company')
 
                 for role in user_roles:
+                    # Convertir el role a string para evitar problemas de serialización
+                    role_str = str(role.role) if hasattr(role.role, '__str__') else role.role
+
                     company_data = {
                         'id': role.company.id,
                         'name': role.company.name,
                         'rut': getattr(role.company, 'rut', None),
-                        'role': role.role,
-                        'is_owner': role.role == 'owner'
+                        'role': role_str,
+                        'is_owner': role_str == 'owner'
                     }
                     user_companies.append(company_data)
 
@@ -516,7 +520,57 @@ class TestResponseView(APIView):
             except Exception as e:
                 logger.warning(f"No se pudieron obtener empresas del usuario: {e}")
 
-            # Preparar metadata para el sistema multi-agente con información real
+            # Manejar conversación persistente
+            conversation = None
+            conversation_history = []
+
+            with transaction.atomic():
+                if conversation_id:
+                    # Buscar conversación existente
+                    try:
+                        conversation = Conversation.objects.get(
+                            id=conversation_id,
+                            user=request.user,
+                            status='active'
+                        )
+                        logger.info(f"Conversación existente encontrada: {conversation.id} para usuario {request.user.id} - {conversation.messages.count()} mensajes")
+                        # Obtener historial de mensajes
+                        messages = conversation.messages.order_by('created_at')
+                        conversation_history = [
+                            {"role": msg.role, "content": msg.content}
+                            for msg in messages
+                        ]
+                    except Conversation.DoesNotExist:
+                        logger.warning(f"Conversación {conversation_id} no encontrada para usuario {request.user.id} - creando nueva conversación")
+                        conversation = None
+
+                if not conversation:
+                    # Crear nueva conversación
+                    conversation = Conversation.objects.create(
+                        user=request.user,
+                        agent_name='supervisor',
+                        status='active',
+                        metadata={
+                            'created_via': 'test_response_api',
+                            'user_companies': user_companies,
+                            'active_company': active_company,
+                            'requested_conversation_id': conversation_id if conversation_id else None
+                        }
+                    )
+                    logger.info(f"Nueva conversación creada: {conversation.id} para usuario {request.user.id} (ID solicitado: {conversation_id})")
+
+                # Guardar mensaje del usuario
+                user_message = ConversationMessage.objects.create(
+                    conversation=conversation,
+                    role='user',
+                    content=message,
+                    metadata={
+                        'ip_address': request.META.get('REMOTE_ADDR'),
+                        'user_agent': request.META.get('HTTP_USER_AGENT', '')
+                    }
+                )
+
+            # Preparar metadata para el sistema multi-agente con información real e historial
             metadata = {
                 'user_id': request.user.id,
                 'user_email': request.user.email,
@@ -529,7 +583,9 @@ class TestResponseView(APIView):
                     'email': request.user.email
                 },
                 'has_permissions': bool(user_companies),
-                'total_companies': len(user_companies)
+                'total_companies': len(user_companies),
+                'conversation_id': str(conversation.id),
+                'conversation_history': conversation_history
             }
 
             # Usar el sistema multi-agente avanzado con seguridad, memoria y monitoreo
@@ -541,6 +597,25 @@ class TestResponseView(APIView):
                 metadata=metadata
             )
 
+            # Guardar respuesta del asistente
+            with transaction.atomic():
+                assistant_message = ConversationMessage.objects.create(
+                    conversation=conversation,
+                    role='assistant',
+                    content=response_text,
+                    agent_name='supervisor',
+                    metadata={
+                        'processing_time': timezone.now().isoformat(),
+                        'system': 'advanced_multi_agent_system'
+                    }
+                )
+
+                # Actualizar conversación
+                conversation.updated_at = timezone.now()
+                if not conversation.title and len(message) > 0:
+                    conversation.title = message[:50] + ("..." if len(message) > 50 else "")
+                conversation.save()
+
             # Obtener información dinámica de agentes
             agents_info = multi_agent_system.get_agents_info()
 
@@ -548,6 +623,7 @@ class TestResponseView(APIView):
             return Response({
                 'message': message,
                 'response': response_text,
+                'conversation_id': str(conversation.id),
                 'selected_agent': 'advanced_multi_agent_system',
                 'confidence': 0.98,  # Muy alta confianza para el sistema avanzado
                 'chain_type': 'AdvancedSupervisorMultiAgent',
@@ -561,7 +637,10 @@ class TestResponseView(APIView):
                     'security_enabled': True,
                     'memory_enabled': True,
                     'monitoring_enabled': True,
-                    'chilean_compliance': True
+                    'chilean_compliance': True,
+                    'conversation_messages_count': conversation.messages.count(),
+                    'conversation_created': conversation.created_at.isoformat(),
+                    'conversation_title': conversation.title
                 },
                 'processing_successful': True
             }, status=status.HTTP_200_OK)
@@ -625,5 +704,126 @@ class TestSupervisorView(APIView):
             logger.error(f"Error en TestSupervisorView: {e}")
             return Response(
                 {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ConversationHistoryView(APIView):
+    """Vista para obtener historial de conversaciones del usuario"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Obtiene las conversaciones del usuario autenticado"""
+        try:
+            conversations = Conversation.objects.filter(
+                user=request.user,
+                status__in=['active', 'ended']
+            ).order_by('-updated_at')
+
+            # Serializar conversaciones
+            conversations_data = []
+            for conv in conversations:
+                last_message = conv.messages.order_by('-created_at').first()
+                conversations_data.append({
+                    'id': str(conv.id),
+                    'title': conv.title or f"Conversación con {conv.agent_name}",
+                    'agent_name': conv.agent_name,
+                    'status': conv.status,
+                    'message_count': conv.messages.count(),
+                    'created_at': conv.created_at.isoformat(),
+                    'updated_at': conv.updated_at.isoformat(),
+                    'last_message': {
+                        'content': last_message.content[:100] + ("..." if len(last_message.content) > 100 else "") if last_message else None,
+                        'role': last_message.role if last_message else None,
+                        'created_at': last_message.created_at.isoformat() if last_message else None
+                    } if last_message else None
+                })
+
+            return Response({
+                'conversations': conversations_data,
+                'total': len(conversations_data)
+            })
+
+        except Exception as e:
+            logger.error(f"Error en ConversationHistoryView: {e}")
+            return Response(
+                {'error': 'Error obteniendo historial de conversaciones'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def delete(self, request, conversation_id):
+        """Archiva una conversación específica"""
+        try:
+            conversation = Conversation.objects.get(
+                id=conversation_id,
+                user=request.user
+            )
+            conversation.status = 'archived'
+            conversation.save()
+
+            return Response({'message': 'Conversación archivada exitosamente'})
+
+        except Conversation.DoesNotExist:
+            return Response(
+                {'error': 'Conversación no encontrada'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error archivando conversación: {e}")
+            return Response(
+                {'error': 'Error archivando conversación'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ConversationDetailView(APIView):
+    """Vista para obtener detalles de una conversación específica"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, conversation_id):
+        """Obtiene todos los mensajes de una conversación"""
+        try:
+            conversation = Conversation.objects.get(
+                id=conversation_id,
+                user=request.user
+            )
+
+            messages = conversation.messages.order_by('created_at')
+            messages_data = []
+
+            for message in messages:
+                messages_data.append({
+                    'role': message.role,
+                    'content': message.content,
+                    'agent_name': message.agent_name,
+                    'created_at': message.created_at.isoformat(),
+                    'metadata': message.metadata
+                })
+
+            return Response({
+                'conversation': {
+                    'id': str(conversation.id),
+                    'title': conversation.title or f"Conversación con {conversation.agent_name}",
+                    'agent_name': conversation.agent_name,
+                    'status': conversation.status,
+                    'created_at': conversation.created_at.isoformat(),
+                    'updated_at': conversation.updated_at.isoformat(),
+                    'metadata': conversation.metadata
+                },
+                'messages': messages_data,
+                'total_messages': len(messages_data)
+            })
+
+        except Conversation.DoesNotExist:
+            return Response(
+                {'error': 'Conversación no encontrada'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error obteniendo detalle de conversación: {e}")
+            return Response(
+                {'error': 'Error obteniendo detalle de conversación'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

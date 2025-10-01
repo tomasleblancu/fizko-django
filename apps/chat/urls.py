@@ -15,7 +15,9 @@ from apps.sii.api.chat_api import (
     MarkConversationReadView,
     ResponseAnalyticsView,
     TestResponseView,
-    TestSupervisorView
+    TestSupervisorView,
+    ConversationHistoryView,
+    ConversationDetailView
 )
 
 app_name = 'chat'
@@ -107,4 +109,9 @@ urlpatterns = [
     path('test-response/', TestResponseView.as_view(), name='test-response'),
     path('test-supervisor/', TestSupervisorView.as_view(), name='test-supervisor'),
     path('response-analytics/', ResponseAnalyticsView.as_view(), name='response-analytics'),
+
+    # Gestión de conversaciones persistentes
+    path('conversations/', ConversationHistoryView.as_view(), name='conversation-history'),
+    path('conversations/<uuid:conversation_id>/', ConversationDetailView.as_view(), name='conversation-detail'),
+    path('conversations/<uuid:conversation_id>/archive/', ConversationHistoryView.as_view(), name='conversation-archive'),
 ]

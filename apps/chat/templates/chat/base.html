@@ -64,6 +64,26 @@
         .status-testing {
             color: #ffc107;
         }
+
+        /* Dropdown styles for sidebar */
+        .sidebar .dropdown-menu {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 0.5rem;
+            margin-top: 0.25rem;
+        }
+        .sidebar .dropdown-item {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 0.5rem 1rem;
+            transition: all 0.3s ease;
+        }
+        .sidebar .dropdown-item:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        .sidebar .dropdown-divider {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
     </style>
 
     {% block extra_css %}{% endblock %}
@@ -104,6 +124,46 @@
                                 <i class="fas fa-tools me-2"></i>
                                 Herramientas
                             </a>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle {% if 'conversation' in request.resolver_match.url_name %}active{% endif %}"
+                               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-comments me-2"></i>
+                                Conversaciones
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-dark">
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'chat_admin:conversation_list' %}">
+                                        <i class="fas fa-list me-2"></i>
+                                        Ver Todas
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'chat_admin:conversation_list' %}?status=active">
+                                        <i class="fas fa-comment-dots me-2"></i>
+                                        Activas
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'chat_admin:conversation_list' %}?status=archived">
+                                        <i class="fas fa-archive me-2"></i>
+                                        Archivadas
+                                    </a>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'chat_admin:conversation_analytics' %}">
+                                        <i class="fas fa-chart-line me-2"></i>
+                                        Analytics
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="/chat/api/test/">
+                                        <i class="fas fa-plus-circle me-2"></i>
+                                        Probar Chat
+                                    </a>
+                                </li>
+                            </ul>
                         </li>
 
                         <hr class="text-white-50 my-3">

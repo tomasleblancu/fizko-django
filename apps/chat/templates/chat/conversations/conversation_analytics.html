@@ -1,0 +1,354 @@
+{% extends 'chat/base.html' %}
+
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Métricas detalladas y seguimiento completo del historial de conversaciones</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'chat_admin:conversation_list' %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver a Conversaciones
+    </a>
+    <a href="{% url 'chat_admin:admin_dashboard' %}" class="btn btn-outline-primary">
+        <i class="fas fa-tachometer-alt me-2"></i>
+        Dashboard
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Estadísticas Principales -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ analytics.total_conversations }}</h4>
+                        <p class="card-text">Total Conversaciones</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comments fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ analytics.active_conversations }}</h4>
+                        <p class="card-text">Activas</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comment-dots fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ analytics.total_messages }}</h4>
+                        <p class="card-text">Total Mensajes</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-envelope fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ analytics.avg_messages_per_conversation }}</h4>
+                        <p class="card-text">Promedio Msgs/Conv</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-calculator fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Distribución de Mensajes -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-pie me-2"></i>
+                    Distribución de Mensajes por Rol
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <div class="stat-item">
+                            <h3 class="text-success">{{ analytics.user_messages }}</h3>
+                            <p class="text-muted mb-0">Mensajes Usuario</p>
+                            <small class="text-muted">
+                                {% widthratio analytics.user_messages analytics.total_messages 100 %}% del total
+                            </small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-item">
+                            <h3 class="text-info">{{ analytics.assistant_messages }}</h3>
+                            <p class="text-muted mb-0">Respuestas IA</p>
+                            <small class="text-muted">
+                                {% widthratio analytics.assistant_messages analytics.total_messages 100 %}% del total
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Agentes Más Utilizados
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if agent_stats %}
+                    <div class="list-group list-group-flush">
+                        {% for agent, stats in agent_stats.items %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            <div>
+                                <strong>{{ agent }}</strong>
+                                <br>
+                                <small class="text-muted">{{ stats.total_messages }} mensajes totales</small>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">{{ stats.count }} conv.</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No hay datos de agentes disponibles</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Conversaciones Más Activas -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-fire me-2"></i>
+                    Conversaciones Más Activas
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if most_active_conversations %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Título</th>
+                                    <th>Estado</th>
+                                    <th>Mensajes</th>
+                                    <th>Agente</th>
+                                    <th>Fecha Creación</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for conversation in most_active_conversations %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ conversation.title|default:"Sin título"|truncatechars:40 }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if conversation.status == 'active' %}
+                                            <span class="badge bg-success">Activa</span>
+                                        {% elif conversation.status == 'archived' %}
+                                            <span class="badge bg-warning">Archivada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ conversation.get_status_display }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ conversation.msg_count }}</span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ conversation.agent_name|default:"Sin especificar" }}</small>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ conversation.created_at|date:"d/m/Y H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'chat_admin:conversation_detail' conversation.id %}"
+                                           class="btn btn-sm btn-outline-info">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-comments fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No hay conversaciones para analizar</h5>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Timeline de Actividad -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Actividad de Conversaciones (Últimos 30 días)
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="daily-chart" style="height: 300px;">
+                    <!-- Chart will be rendered here with Chart.js -->
+                    <div class="text-center text-muted">
+                        <i class="fas fa-chart-line fa-3x mb-3"></i>
+                        <p>Gráfico de actividad diaria (necesita Chart.js para renderizar)</p>
+                        <small>Datos disponibles para {{ daily_conversations|length }} días</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Resumen Detallado -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-list-alt me-2"></i>
+                    Todas las Conversaciones (Resumen)
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if conversation_lengths %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Título</th>
+                                    <th>Estado</th>
+                                    <th>Mensajes</th>
+                                    <th>Fecha</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for conv in conversation_lengths %}
+                                <tr>
+                                    <td>{{ conv.title }}</td>
+                                    <td>
+                                        {% if conv.status == 'active' %}
+                                            <span class="badge bg-success">Activa</span>
+                                        {% elif conv.status == 'archived' %}
+                                            <span class="badge bg-warning">Archivada</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ conv.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-{% if conv.message_count > 10 %}success{% elif conv.message_count > 5 %}warning{% else %}secondary{% endif %}">
+                                            {{ conv.message_count }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ conv.created_at }}</small>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'chat_admin:conversation_detail' conv.conversation_id %}"
+                                           class="btn btn-xs btn-outline-primary">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-chart-bar fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No hay datos para mostrar</h5>
+                        <p class="text-muted">Inicia algunas conversaciones para ver analytics detallados.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.stat-item {
+    padding: 1rem;
+}
+
+.card-title {
+    font-weight: 600;
+}
+
+.btn-xs {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+}
+
+#daily-chart {
+    background: #f8f9fa;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+</style>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js para gráficos futuros -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Datos para el gráfico de actividad diaria
+const dailyData = {{ daily_conversations|safe }};
+console.log('Daily conversations data:', dailyData);
+
+// Datos para gráfico de distribución por hora
+const hourlyData = {{ hourly_messages|safe }};
+console.log('Hourly messages data:', hourlyData);
+
+// Aquí se pueden agregar gráficos interactivos con Chart.js en el futuro
+</script>
+{% endblock %}

@@ -8,11 +8,11 @@
 
 {% block page_actions %}
 <div class="btn-group">
-    <a href="{% url 'chat:create_prompt' agent.id %}" class="btn btn-primary">
+    <a href="{% url 'chat_admin:create_prompt' agent.id %}" class="btn btn-primary">
         <i class="fas fa-plus me-2"></i>
         Crear Prompt
     </a>
-    <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-outline-secondary">
         <i class="fas fa-arrow-left me-2"></i>
         Volver al Agente
     </a>
@@ -83,7 +83,7 @@
                                                     title="Ver contenido">
                                                 <i class="fas fa-eye"></i>
                                             </button>
-                                            <a href="{% url 'chat:create_prompt' agent.id %}?edit={{ prompt.id }}"
+                                            <a href="{% url 'chat_admin:create_prompt' agent.id %}?edit={{ prompt.id }}"
                                                class="btn btn-outline-primary" title="Editar">
                                                 <i class="fas fa-edit"></i>
                                             </a>
@@ -109,7 +109,7 @@
                         <i class="fas fa-comments fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted">No hay prompts configurados</h5>
                         <p class="text-muted">Los prompts definen el comportamiento y personalidad del agente</p>
-                        <a href="{% url 'chat:create_prompt' agent.id %}" class="btn btn-primary">
+                        <a href="{% url 'chat_admin:create_prompt' agent.id %}" class="btn btn-primary">
                             <i class="fas fa-plus me-2"></i>
                             Crear Primer Prompt
                         </a>
@@ -204,7 +204,7 @@ function togglePrompt(promptId, newStatus) {
                          getCookie('csrftoken');
 
         // Realizar llamada AJAX para cambiar estado
-        fetch(`{% url 'chat:toggle_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+        fetch(`{% url 'chat_admin:toggle_prompt_api' agent.id 0 %}`.replace('0', promptId), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -239,7 +239,7 @@ function deletePrompt(promptId, promptName) {
                          getCookie('csrftoken');
 
         // Realizar llamada AJAX para eliminar
-        fetch(`{% url 'chat:delete_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+        fetch(`{% url 'chat_admin:delete_prompt_api' agent.id 0 %}`.replace('0', promptId), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

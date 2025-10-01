@@ -10,7 +10,7 @@
 
 {% block page_actions %}
 <div class="btn-group">
-    <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+    <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-outline-secondary">
         <i class="fas fa-arrow-left me-2"></i>
         Volver al Agente
     </a>
@@ -205,7 +205,7 @@
                     </div>
 
                     <div class="d-flex justify-content-between">
-                        <a href="{% url 'chat:agent_detail' agent.id %}" class="btn btn-secondary">
+                        <a href="{% url 'chat_admin:agent_detail' agent.id %}" class="btn btn-secondary">
                             <i class="fas fa-times me-2"></i>
                             Cancelar
                         </a>
@@ -412,7 +412,7 @@ function enhancePrompt(content, promptType) {
     };
 
     // Llamada AJAX
-    fetch(`{% url 'chat:enhance_prompt_api' agent.id %}`, {
+    fetch(`{% url 'chat_admin:enhance_prompt_api' agent.id %}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

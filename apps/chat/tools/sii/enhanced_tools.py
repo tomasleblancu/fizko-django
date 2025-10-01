@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def enhanced_search_sii_faqs(
     query: str,
     max_results: int = 5,
-    category_filter: str = None,
+    category_filter: Optional[str] = None,
     use_smart_filtering: bool = True,
     enable_reranking: bool = True
 ) -> Dict[str, Any]:
@@ -92,7 +92,7 @@ async def enhanced_search_sii_faqs(
 @tool
 async def intelligent_sii_assistant(
     user_question: str,
-    context_categories: List[str] = None,
+    context_categories: Optional[List[str]] = None,
     include_related_topics: bool = True
 ) -> Dict[str, Any]:
     """

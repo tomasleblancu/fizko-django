@@ -33,6 +33,18 @@ urlpatterns = [
 
     # Context Files Management
     path('agents/<int:agent_id>/context/', views.agent_context_files, name='agent_context_files'),
+    path('agents/<int:agent_id>/context/upload/', views.upload_context_file, name='upload_context_file'),
+    path('agents/<int:agent_id>/context/<int:file_id>/assign/', views.assign_context_file, name='assign_context_file'),
+    path('agents/<int:agent_id>/context/<int:file_id>/remove/', views.remove_context_file, name='remove_context_file'),
+    path('agents/<int:agent_id>/context/<int:file_id>/toggle/', views.toggle_context_file, name='toggle_context_file'),
+    path('context-files/<int:file_id>/', views.context_file_detail, name='context_file_detail'),
+
+    # Conversations Management
+    path('conversations/', views.conversation_list, name='conversation_list'),
+    path('conversations/analytics/', views.conversation_analytics, name='conversation_analytics'),
+    path('conversations/<uuid:conversation_id>/', views.conversation_detail, name='conversation_detail'),
+    path('conversations/<uuid:conversation_id>/archive/', views.conversation_archive, name='conversation_archive'),
+    path('conversations/<uuid:conversation_id>/add-message/', views.add_assistant_message, name='add_assistant_message'),
 
     # Dashboard
     path('', views.admin_dashboard, name='admin_dashboard'),

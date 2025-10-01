@@ -559,6 +559,12 @@ def admin_dashboard(request):
     from .models.common_tools import CommonTool, ToolCategory
     total_tools = CommonTool.objects.count()
 
+    # Estadísticas de conversaciones
+    from .models.conversation import Conversation, ConversationMessage
+    total_conversations = Conversation.objects.filter(user=request.user).count()
+    active_conversations = Conversation.objects.filter(user=request.user, status='active').count()
+    total_messages = ConversationMessage.objects.filter(conversation__user=request.user).count()
+
     # Agentes recientes
     recent_agents = AgentConfig.objects.filter(
         get_user_agents_query(request.user)
@@ -569,7 +575,10 @@ def admin_dashboard(request):
         'active_agents': active_agents,
         'total_tools': total_tools,
         'recent_agents': recent_agents,
-        'categories': list(ToolCategory.objects.values_list('name', flat=True))
+        'categories': list(ToolCategory.objects.values_list('name', flat=True)),
+        'total_conversations': total_conversations,
+        'active_conversations': active_conversations,
+        'total_messages': total_messages,
     }
     return render(request, 'chat/admin/dashboard.html', context)
 
@@ -852,3 +861,294 @@ def toggle_prompt_api(request, agent_id, prompt_id):
             'success': False,
             'error': 'Error interno del servidor'
         }, status=500)
+
+
+# ============================================================================
+# VISTAS DE GESTIÓN DE CONVERSACIONES
+# ============================================================================
+
+@login_required
+def conversation_list(request):
+    """Lista de conversaciones del usuario"""
+    from .models.conversation import Conversation
+
+    # Obtener conversaciones del usuario autenticado
+    conversations = Conversation.objects.filter(
+        user=request.user
+    ).order_by('-updated_at')
+
+    # Filtrar por status si se proporciona
+    status_filter = request.GET.get('status')
+    if status_filter:
+        conversations = conversations.filter(status=status_filter)
+
+    # Calcular estadísticas
+    total_conversations = Conversation.objects.filter(user=request.user).count()
+    active_conversations = Conversation.objects.filter(user=request.user, status='active').count()
+    archived_conversations = Conversation.objects.filter(user=request.user, status='archived').count()
+
+    # Agregar información de mensaje count para cada conversación
+    for conv in conversations:
+        conv.message_count = conv.messages.count()
+        conv.last_message = conv.messages.order_by('-created_at').first()
+
+    # Paginación
+    paginator = Paginator(conversations, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    # Determinar título de página según filtro
+    if status_filter == 'active':
+        page_title = 'Conversaciones Activas'
+    elif status_filter == 'archived':
+        page_title = 'Conversaciones Archivadas'
+    else:
+        page_title = 'Todas las Conversaciones'
+
+    context = {
+        'conversations': page_obj,
+        'total_conversations': total_conversations,
+        'active_conversations': active_conversations,
+        'archived_conversations': archived_conversations,
+        'current_filter': status_filter,
+        'page_title': page_title,
+    }
+
+    return render(request, 'chat/conversations/conversation_list.html', context)
+
+
+@login_required
+def conversation_detail(request, conversation_id):
+    """Detalle de una conversación específica"""
+    from .models.conversation import Conversation, ConversationMessage
+
+    # Obtener conversación asegurando que pertenece al usuario
+    conversation = get_object_or_404(
+        Conversation,
+        id=conversation_id,
+        user=request.user
+    )
+
+    # Obtener mensajes de la conversación
+    messages = conversation.messages.order_by('created_at')
+
+    # Paginación de mensajes (más recientes primero para la vista)
+    paginator = Paginator(messages, 50)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    # Calcular estadísticas de mensajes
+    user_messages_count = messages.filter(role='user').count()
+    assistant_messages_count = messages.filter(role='assistant').count()
+
+    context = {
+        'conversation': conversation,
+        'messages': page_obj,
+        'total_messages': messages.count(),
+        'user_messages_count': user_messages_count,
+        'assistant_messages_count': assistant_messages_count,
+        'page_title': f'Conversación: {conversation.title or "Sin título"}',
+    }
+
+    return render(request, 'chat/conversations/conversation_detail.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def add_assistant_message(request, conversation_id):
+    """Agregar un mensaje como asistente a una conversación"""
+    from .models.conversation import Conversation, ConversationMessage
+    from django.utils import timezone
+    import json
+
+    try:
+        # Obtener conversación asegurando que pertenece al usuario
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            user=request.user
+        )
+
+        # Obtener el contenido del mensaje
+        if request.content_type == 'application/json':
+            data = json.loads(request.body)
+            message_content = data.get('content', '').strip()
+        else:
+            message_content = request.POST.get('content', '').strip()
+
+        if not message_content:
+            return JsonResponse({
+                'success': False,
+                'error': 'El contenido del mensaje no puede estar vacío'
+            }, status=400)
+
+        # Crear el nuevo mensaje como asistente
+        message = ConversationMessage.objects.create(
+            conversation=conversation,
+            role='assistant',
+            content=message_content,
+            metadata={
+                'added_by_admin': True,
+                'admin_user_id': request.user.id,
+                'timestamp': timezone.now().isoformat()
+            }
+        )
+
+        # Actualizar la conversación
+        conversation.updated_at = timezone.now()
+        conversation.save()
+
+        messages.success(request, f'Mensaje agregado exitosamente a la conversación')
+        logger.info(f'Mensaje de asistente agregado a conversación {conversation_id} por usuario {request.user.id}')
+
+        # Respuesta diferente según el tipo de request
+        if request.content_type == 'application/json':
+            return JsonResponse({
+                'success': True,
+                'message_id': str(message.id),
+                'message': 'Mensaje agregado exitosamente'
+            })
+        else:
+            return redirect('chat_admin:conversation_detail', conversation_id=conversation_id)
+
+    except Exception as e:
+        logger.error(f'Error agregando mensaje a conversación {conversation_id}: {e}')
+
+        if request.content_type == 'application/json':
+            return JsonResponse({
+                'success': False,
+                'error': 'Error interno del servidor'
+            }, status=500)
+        else:
+            messages.error(request, 'Error al agregar el mensaje')
+            return redirect('chat_admin:conversation_detail', conversation_id=conversation_id)
+
+
+@login_required
+@require_http_methods(["POST"])
+def conversation_archive(request, conversation_id):
+    """Archivar una conversación"""
+    from .models.conversation import Conversation
+    from django.utils import timezone
+
+    try:
+        # Obtener conversación asegurando que pertenece al usuario
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            user=request.user
+        )
+
+        # Archivar la conversación
+        conversation.status = 'archived'
+        conversation.ended_at = timezone.now()
+        conversation.save()
+
+        messages.success(request, f'Conversación "{conversation.title}" archivada exitosamente.')
+        logger.info(f"Conversación {conversation_id} archivada por usuario {request.user.id}")
+
+        return redirect('chat_admin:conversation_list')
+
+    except Exception as e:
+        logger.error(f"Error archivando conversación {conversation_id}: {e}")
+        messages.error(request, 'Error al archivar la conversación.')
+        return redirect('chat_admin:conversation_list')
+
+
+@login_required
+def conversation_analytics(request):
+    """Vista de analytics y seguimiento completo de conversaciones"""
+    from .models.conversation import Conversation, ConversationMessage
+    from django.db.models import Count, Avg, Q
+    from django.utils import timezone
+    from datetime import datetime, timedelta
+    import json
+
+    # Estadísticas generales
+    total_conversations = Conversation.objects.filter(user=request.user).count()
+    active_conversations = Conversation.objects.filter(user=request.user, status='active').count()
+    archived_conversations = Conversation.objects.filter(user=request.user, status='archived').count()
+    total_messages = ConversationMessage.objects.filter(conversation__user=request.user).count()
+
+    # Métricas de mensajes por rol
+    user_messages = ConversationMessage.objects.filter(
+        conversation__user=request.user, role='user'
+    ).count()
+    assistant_messages = ConversationMessage.objects.filter(
+        conversation__user=request.user, role='assistant'
+    ).count()
+
+    # Conversaciones por fecha (últimos 30 días)
+    last_30_days = timezone.now() - timedelta(days=30)
+    daily_conversations = []
+    for i in range(30):
+        date = (timezone.now() - timedelta(days=i)).date()
+        count = Conversation.objects.filter(
+            user=request.user,
+            created_at__date=date
+        ).count()
+        daily_conversations.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'count': count
+        })
+    daily_conversations.reverse()
+
+    # Distribución de longitud de conversaciones
+    conversation_lengths = []
+    conversations = Conversation.objects.filter(user=request.user).prefetch_related('messages')
+    for conv in conversations:
+        msg_count = conv.messages.count()
+        conversation_lengths.append({
+            'conversation_id': str(conv.id),
+            'title': conv.title[:50] if conv.title else 'Sin título',
+            'message_count': msg_count,
+            'status': conv.status,
+            'created_at': conv.created_at.strftime('%Y-%m-%d %H:%M')
+        })
+
+    # Estadísticas de agentes más utilizados
+    agent_stats = {}
+    for conv in conversations:
+        agent = conv.agent_name or 'Sin especificar'
+        if agent not in agent_stats:
+            agent_stats[agent] = {'count': 0, 'total_messages': 0}
+        agent_stats[agent]['count'] += 1
+        agent_stats[agent]['total_messages'] += conv.messages.count()
+
+    # Mensajes por hora del día
+    hourly_messages = {}
+    for hour in range(24):
+        hourly_messages[hour] = ConversationMessage.objects.filter(
+            conversation__user=request.user,
+            created_at__hour=hour
+        ).count()
+
+    # Conversaciones más activas (por número de mensajes)
+    most_active_conversations = list(conversations.annotate(
+        msg_count=Count('messages')
+    ).order_by('-msg_count')[:10])
+
+    # Promedio de mensajes por conversación
+    avg_messages_per_conversation = ConversationMessage.objects.filter(
+        conversation__user=request.user
+    ).count() / max(total_conversations, 1)
+
+    context = {
+        'analytics': {
+            'total_conversations': total_conversations,
+            'active_conversations': active_conversations,
+            'archived_conversations': archived_conversations,
+            'total_messages': total_messages,
+            'user_messages': user_messages,
+            'assistant_messages': assistant_messages,
+            'avg_messages_per_conversation': round(avg_messages_per_conversation, 1),
+        },
+        'daily_conversations': daily_conversations,
+        'conversation_lengths': conversation_lengths,
+        'agent_stats': agent_stats,
+        'hourly_messages': hourly_messages,
+        'most_active_conversations': most_active_conversations,
+        'page_title': 'Analytics de Conversaciones',
+    }
+
+    return render(request, 'chat/conversations/conversation_analytics.html', context)

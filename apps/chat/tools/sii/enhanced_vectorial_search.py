@@ -23,7 +23,7 @@ class EnhancedVectorialSystem:
         self,
         query: str,
         max_results: int = 5,
-        category_filter: str = None,
+        category_filter: Optional[str] = None,
         use_smart_filtering: bool = True,
         enable_reranking: bool = True
     ) -> Dict[str, Any]:

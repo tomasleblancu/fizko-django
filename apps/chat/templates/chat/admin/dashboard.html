@@ -71,6 +71,55 @@
     </div>
 </div>
 
+<!-- Conversation Statistics Row -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-white bg-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_conversations }}</h4>
+                        <p class="card-text">Total Conversaciones</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comments fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-secondary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ active_conversations }}</h4>
+                        <p class="card-text">Conversaciones Activas</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-comment-dots fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-purple" style="background-color: #6f42c1 !important;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_messages }}</h4>
+                        <p class="card-text">Total Mensajes</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-envelope fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <!-- Recent Agents -->
     <div class="col-md-8">
@@ -142,6 +191,10 @@
                     <a href="{% url 'chat_admin:tools_library' %}" class="btn btn-outline-secondary">
                         <i class="fas fa-tools me-2"></i>
                         Ver Herramientas
+                    </a>
+                    <a href="{% url 'chat_admin:conversation_list' %}" class="btn btn-outline-info">
+                        <i class="fas fa-comments me-2"></i>
+                        Ver Conversaciones
                     </a>
                 </div>
             </div>
