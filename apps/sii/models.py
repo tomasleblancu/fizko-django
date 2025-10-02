@@ -86,8 +86,9 @@ class SIISyncLog(TimeStampedModel):
     documents_updated = models.IntegerField(default=0)
     errors_count = models.IntegerField(default=0)
     results_data = models.JSONField(default=dict)
-    
+
     sync_data = models.JSONField(default=dict)
+    progress_percentage = models.IntegerField(default=0, help_text="Porcentaje de progreso de la sincronización")
     
     class Meta:
         db_table = 'sii_sync_logs'

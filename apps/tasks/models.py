@@ -792,3 +792,321 @@ class TaskSchedule(TimeStampedModel):
             from django.utils import timezone
             return timezone.now() > self.end_date
         return False
+
+
+# ============================================================================
+# SISTEMA DE GESTIÓN DE PROCESOS TRIBUTARIOS
+# ============================================================================
+
+class CompanySegment(TimeStampedModel):
+    """
+    Segmentación de empresas para asignación automática de procesos tributarios
+    """
+    SEGMENT_TYPES = [
+        ('size', 'Por Tamaño'),
+        ('industry', 'Por Actividad Económica'),
+        ('tax_regime', 'Por Régimen Tributario'),
+        ('revenue', 'Por Ingresos'),
+        ('custom', 'Personalizado'),
+    ]
+
+    name = models.CharField(max_length=100, unique=True, verbose_name="Nombre del Segmento")
+    description = models.TextField(blank=True, verbose_name="Descripción")
+    segment_type = models.CharField(max_length=20, choices=SEGMENT_TYPES, verbose_name="Tipo de Segmento")
+
+    # Criterios de segmentación (JSON)
+    criteria = models.JSONField(
+        default=dict,
+        help_text="Criterios de segmentación en formato JSON. "
+                  "Ejemplo: {'size': {'min_employees': 10, 'max_employees': 50}, 'tax_regime': ['14A', '14B']}"
+    )
+
+    # Estado
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+
+    # Metadata
+    created_by = models.CharField(max_length=255, help_text="Email del usuario creador")
+
+    class Meta:
+        db_table = 'company_segments'
+        verbose_name = 'Segmento de Empresas'
+        verbose_name_plural = 'Segmentos de Empresas'
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_segment_type_display()})"
+
+    def get_matching_companies(self):
+        """Retorna las empresas que cumplen con los criterios de este segmento"""
+        from apps.companies.models import Company
+        from apps.taxpayers.models import TaxPayer
+
+        # Por ahora retorna las que tienen el segmento asignado explícitamente
+        # TODO: Implementar evaluación dinámica de criterios
+        return TaxPayer.objects.filter(company_segment=self).select_related('company')
+
+    def evaluate_company(self, company):
+        """Evalúa si una empresa cumple con los criterios del segmento"""
+        if not self.criteria:
+            return False
+
+        # TODO: Implementar lógica de evaluación de criterios
+        # Por ahora retorna False, se implementará en el servicio
+        return False
+
+
+class ProcessTemplateConfig(TimeStampedModel):
+    """
+    Configuración avanzada de plantillas de procesos tributarios
+    Similar a AgentConfig pero para procesos
+    """
+    STATUS_CHOICES = [
+        ('active', 'Activo'),
+        ('inactive', 'Inactivo'),
+        ('testing', 'En Pruebas'),
+    ]
+
+    # Identificación
+    name = models.CharField(max_length=255, verbose_name="Nombre de la Plantilla")
+    description = models.TextField(blank=True, verbose_name="Descripción")
+    process_type = models.CharField(max_length=50, choices=Process.PROCESS_TYPES, verbose_name="Tipo de Proceso")
+
+    # Estado
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active', verbose_name="Estado")
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+
+    # Configuración de recurrencia por defecto
+    default_recurrence_type = models.CharField(
+        max_length=20,
+        choices=Process._meta.get_field('recurrence_type').choices,
+        blank=True,
+        null=True,
+        verbose_name="Recurrencia por Defecto"
+    )
+    default_recurrence_config = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Configuración de Recurrencia",
+        help_text="Configuración de recurrencia por defecto para procesos creados con esta plantilla"
+    )
+
+    # Configuración de la plantilla
+    template_config = models.JSONField(
+        default=dict,
+        verbose_name="Configuración de la Plantilla",
+        help_text="Configuración completa de la plantilla: estructura, variables, valores por defecto"
+    )
+
+    # Variables disponibles
+    available_variables = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Variables Disponibles",
+        help_text="Lista de variables que pueden ser usadas en esta plantilla"
+    )
+
+    # Valores por defecto
+    default_values = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Valores por Defecto",
+        help_text="Valores por defecto para las variables de la plantilla"
+    )
+
+    # Estadísticas de uso
+    usage_count = models.IntegerField(default=0, verbose_name="Veces Utilizado")
+    last_used_at = models.DateTimeField(null=True, blank=True, verbose_name="Último Uso")
+
+    # Metadata
+    created_by = models.CharField(max_length=255, help_text="Email del usuario creador")
+
+    class Meta:
+        db_table = 'process_template_configs'
+        verbose_name = 'Configuración de Plantilla de Proceso'
+        verbose_name_plural = 'Configuraciones de Plantillas de Procesos'
+        ordering = ['process_type', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_process_type_display()})"
+
+    def is_available(self):
+        """Verifica si la plantilla está disponible para uso"""
+        return self.is_active and self.status == 'active'
+
+    def increment_usage(self):
+        """Incrementa el contador de uso"""
+        from django.utils import timezone
+        self.usage_count += 1
+        self.last_used_at = timezone.now()
+        self.save(update_fields=['usage_count', 'last_used_at'])
+
+
+class ProcessTemplateTask(TimeStampedModel):
+    """
+    Tareas predefinidas dentro de una plantilla de proceso
+    Define la estructura de tareas que se crearán cuando se aplique la plantilla
+    """
+    TASK_TYPES = Task.TASK_TYPES
+    PRIORITY_CHOICES = Task.PRIORITY_CHOICES
+
+    template = models.ForeignKey(
+        ProcessTemplateConfig,
+        on_delete=models.CASCADE,
+        related_name='template_tasks',
+        verbose_name="Plantilla"
+    )
+
+    # Definición de la tarea
+    task_title = models.CharField(max_length=255, verbose_name="Título de la Tarea")
+    task_description = models.TextField(blank=True, verbose_name="Descripción")
+    task_type = models.CharField(max_length=20, choices=TASK_TYPES, default='manual', verbose_name="Tipo de Tarea")
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='normal', verbose_name="Prioridad")
+
+    # Orden y dependencias
+    execution_order = models.IntegerField(default=0, verbose_name="Orden de Ejecución")
+    depends_on = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        blank=True,
+        related_name='dependent_tasks',
+        verbose_name="Depende de"
+    )
+
+    # Opcionalidad y paralelización
+    is_optional = models.BooleanField(default=False, verbose_name="Es Opcional")
+    can_run_parallel = models.BooleanField(default=False, verbose_name="Puede Ejecutarse en Paralelo")
+
+    # Configuración de plazos
+    due_date_offset_days = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Días de Plazo",
+        help_text="Días desde el inicio del proceso para calcular fecha límite"
+    )
+    due_date_from_previous = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Días desde Tarea Anterior",
+        help_text="Días desde completación de tarea anterior"
+    )
+
+    # Duración estimada
+    estimated_hours = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Horas Estimadas",
+        help_text="Duración estimada en horas"
+    )
+
+    # Configuración adicional
+    task_config = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Configuración de la Tarea",
+        help_text="Configuración específica de la tarea"
+    )
+
+    class Meta:
+        db_table = 'process_template_tasks'
+        verbose_name = 'Tarea de Plantilla'
+        verbose_name_plural = 'Tareas de Plantilla'
+        ordering = ['template', 'execution_order']
+        unique_together = ['template', 'execution_order']
+
+    def __str__(self):
+        return f"{self.template.name} - {self.task_title}"
+
+
+class ProcessAssignmentRule(TimeStampedModel):
+    """
+    Reglas de asignación automática de plantillas de procesos a segmentos de empresas
+    """
+    template = models.ForeignKey(
+        ProcessTemplateConfig,
+        on_delete=models.CASCADE,
+        related_name='assignment_rules',
+        verbose_name="Plantilla"
+    )
+    segment = models.ForeignKey(
+        CompanySegment,
+        on_delete=models.CASCADE,
+        related_name='assignment_rules',
+        verbose_name="Segmento"
+    )
+
+    # Condiciones adicionales
+    conditions = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Condiciones Adicionales",
+        help_text="Condiciones específicas adicionales a los criterios del segmento"
+    )
+
+    # Prioridad
+    priority = models.IntegerField(
+        default=0,
+        verbose_name="Prioridad",
+        help_text="Orden de aplicación (mayor número = mayor prioridad)"
+    )
+
+    # Vigencia
+    start_date = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de Inicio")
+    end_date = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de Fin")
+
+    # Estado
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+
+    # Configuración de aplicación
+    auto_apply = models.BooleanField(
+        default=True,
+        verbose_name="Aplicar Automáticamente",
+        help_text="Si se debe aplicar automáticamente cuando una empresa cumple los criterios"
+    )
+
+    # Metadata
+    created_by = models.CharField(max_length=255, help_text="Email del usuario creador")
+
+    class Meta:
+        db_table = 'process_assignment_rules'
+        verbose_name = 'Regla de Asignación de Procesos'
+        verbose_name_plural = 'Reglas de Asignación de Procesos'
+        ordering = ['-priority', 'template', 'segment']
+        unique_together = ['template', 'segment']
+
+    def __str__(self):
+        return f"{self.template.name} → {self.segment.name}"
+
+    def is_valid(self):
+        """Verifica si la regla está vigente"""
+        from django.utils import timezone
+        now = timezone.now()
+
+        if not self.is_active:
+            return False
+
+        if self.start_date and now < self.start_date:
+            return False
+
+        if self.end_date and now > self.end_date:
+            return False
+
+        return True
+
+    def applies_to_company(self, company):
+        """Verifica si esta regla aplica a una empresa específica"""
+        if not self.is_valid():
+            return False
+
+        # Verificar si la empresa pertenece al segmento
+        if not hasattr(company, 'taxpayer'):
+            return False
+
+        taxpayer = company.taxpayer
+        if taxpayer.company_segment != self.segment:
+            # Evaluar si cumple los criterios del segmento
+            if not self.segment.evaluate_company(company):
+                return False
+
+        # TODO: Evaluar condiciones adicionales
+
+        return True

@@ -1,0 +1,176 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}{{ action }} Plantilla{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">{{ action }} Plantilla de Proceso</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" id="templateForm">
+            {% csrf_token %}
+
+            <!-- Información Básica -->
+            <h6 class="border-bottom pb-2 mb-3">Información Básica</h6>
+
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="mb-3">
+                        <label for="{{ form.name.id_for_label }}" class="form-label">
+                            Nombre <span class="text-danger">*</span>
+                        </label>
+                        {{ form.name }}
+                        {% if form.name.errors %}
+                            <div class="text-danger small">{{ form.name.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label for="{{ form.status.id_for_label }}" class="form-label">
+                            Estado <span class="text-danger">*</span>
+                        </label>
+                        {{ form.status }}
+                        {% if form.status.errors %}
+                            <div class="text-danger small">{{ form.status.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="{{ form.process_type.id_for_label }}" class="form-label">
+                            Tipo de Proceso <span class="text-danger">*</span>
+                        </label>
+                        {{ form.process_type }}
+                        {% if form.process_type.errors %}
+                            <div class="text-danger small">{{ form.process_type.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="{{ form.default_recurrence_type.id_for_label }}" class="form-label">
+                            Recurrencia por Defecto
+                        </label>
+                        {{ form.default_recurrence_type }}
+                        {% if form.default_recurrence_type.errors %}
+                            <div class="text-danger small">{{ form.default_recurrence_type.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="{{ form.description.id_for_label }}" class="form-label">
+                    Descripción
+                </label>
+                {{ form.description }}
+                {% if form.description.errors %}
+                    <div class="text-danger small">{{ form.description.errors.0 }}</div>
+                {% endif %}
+            </div>
+
+            <!-- Configuración de Recurrencia -->
+            <h6 class="border-bottom pb-2 mb-3 mt-4">Configuración de Recurrencia</h6>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="{{ form.recurrence_day.id_for_label }}" class="form-label">
+                            {{ form.recurrence_day.label }}
+                        </label>
+                        {{ form.recurrence_day }}
+                        <small class="text-muted d-block">{{ form.recurrence_day.help_text }}</small>
+                        {% if form.recurrence_day.errors %}
+                            <div class="text-danger small">{{ form.recurrence_day.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuración de la Plantilla (solo para tax_monthly y tax_quarterly) -->
+            <div id="taxConfigSection" style="display: none;">
+                <h6 class="border-bottom pb-2 mb-3 mt-4">Configuración de la Plantilla</h6>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-check mb-3">
+                            {{ form.auto_sync_documents }}
+                            <label class="form-check-label" for="{{ form.auto_sync_documents.id_for_label }}">
+                                {{ form.auto_sync_documents.label }}
+                            </label>
+                            <small class="text-muted d-block ms-4">{{ form.auto_sync_documents.help_text }}</small>
+                        </div>
+
+                        <div class="form-check mb-3">
+                            {{ form.require_approval }}
+                            <label class="form-check-label" for="{{ form.require_approval.id_for_label }}">
+                                {{ form.require_approval.label }}
+                            </label>
+                            <small class="text-muted d-block ms-4">{{ form.require_approval.help_text }}</small>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-check mb-3">
+                            {{ form.auto_calculate_iva }}
+                            <label class="form-check-label" for="{{ form.auto_calculate_iva.id_for_label }}">
+                                {{ form.auto_calculate_iva.label }}
+                            </label>
+                            <small class="text-muted d-block ms-4">{{ form.auto_calculate_iva.help_text }}</small>
+                        </div>
+
+                        <div class="form-check mb-3">
+                            {{ form.include_credits }}
+                            <label class="form-check-label" for="{{ form.include_credits.id_for_label }}">
+                                {{ form.include_credits.label }}
+                            </label>
+                            <small class="text-muted d-block ms-4">{{ form.include_credits.help_text }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save me-1"></i> Guardar
+                </button>
+                <a href="{% if template %}{% url 'internal:processes:template_detail' template.id %}{% else %}{% url 'internal:processes:template_list' %}{% endif %}"
+                   class="btn btn-secondary">
+                    <i class="fas fa-times me-1"></i> Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Mostrar/ocultar configuración según el tipo de proceso
+    function toggleTaxConfig() {
+        const processType = document.getElementById('{{ form.process_type.id_for_label }}').value;
+        const taxConfigSection = document.getElementById('taxConfigSection');
+
+        if (processType === 'tax_monthly' || processType === 'tax_quarterly') {
+            taxConfigSection.style.display = 'block';
+        } else {
+            taxConfigSection.style.display = 'none';
+        }
+    }
+
+    // Ejecutar al cargar la página
+    document.addEventListener('DOMContentLoaded', function() {
+        toggleTaxConfig();
+
+        // Ejecutar al cambiar el tipo de proceso
+        document.getElementById('{{ form.process_type.id_for_label }}').addEventListener('change', toggleTaxConfig);
+    });
+</script>
+{% endblock %}

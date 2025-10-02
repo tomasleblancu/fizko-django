@@ -1,0 +1,388 @@
+{% extends 'internal/chat/base.html' %}
+
+{% block page_title %}Probar {{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">{{ agent.get_agent_type_display }} - Interfaz de pruebas</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'internal:chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+    <a href="{% url 'internal:chat:agent_list' %}" class="btn btn-outline-secondary">
+        <i class="fas fa-list me-2"></i>
+        Lista de Agentes
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Test Form -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-play-circle me-2"></i>
+                    Interfaz de Pruebas
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post" class="test-agent-form">
+                    {% csrf_token %}
+
+                    <!-- Message Field -->
+                    <div class="mb-3">
+                        <label for="{{ form.message.id_for_label }}" class="form-label">
+                            <i class="fas fa-comment me-2"></i>
+                            {{ form.message.label }}
+                        </label>
+                        {{ form.message }}
+                        <div class="form-text">
+                            <i class="fas fa-keyboard me-1"></i>
+                            Presiona <kbd>Ctrl</kbd> + <kbd>Enter</kbd> (o <kbd>Cmd</kbd> + <kbd>Enter</kbd> en Mac) para probar rápidamente
+                        </div>
+                        {% if form.message.errors %}
+                            <div class="text-danger small mt-1">
+                                {% for error in form.message.errors %}
+                                    <div>{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Context Data Field -->
+                    <div class="mb-3">
+                        <label for="{{ form.context_data.id_for_label }}" class="form-label">
+                            <i class="fas fa-code me-2"></i>
+                            {{ form.context_data.label }}
+                        </label>
+                        {{ form.context_data }}
+                        {% if form.context_data.help_text %}
+                            <div class="form-text">{{ form.context_data.help_text }}</div>
+                        {% endif %}
+                        {% if form.context_data.errors %}
+                            <div class="text-danger small mt-1">
+                                {% for error in form.context_data.errors %}
+                                    <div>{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <button type="submit" class="btn btn-success btn-lg" id="testAgentBtn">
+                            <span class="btn-content">
+                                <i class="fas fa-rocket me-2"></i>
+                                Probar Agente
+                            </span>
+                            <span class="btn-loading d-none">
+                                <div class="spinner-border spinner-border-sm me-2" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                Procesando...
+                            </span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Test Examples -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-lightbulb me-2"></i>
+                    Ejemplos de Pruebas
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if agent.agent_type == 'dte' %}
+                    <div class="col-md-6">
+                        <h6 class="text-muted">Consultas sobre DTEs</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-primary example-btn"
+                                        data-message="¿Cuántas facturas he emitido este mes?">
+                                    <i class="fas fa-file-invoice me-1"></i>
+                                    Facturas del mes
+                                </button>
+                            </li>
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-primary example-btn"
+                                        data-message="¿Cuál es el monto total de ventas en pesos?">
+                                    <i class="fas fa-calculator me-1"></i>
+                                    Total de ventas
+                                </button>
+                            </li>
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-primary example-btn"
+                                        data-message="Muéstrame las estadísticas de documentos">
+                                    <i class="fas fa-chart-bar me-1"></i>
+                                    Estadísticas
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    {% elif agent.agent_type == 'sii' %}
+                    <div class="col-md-6">
+                        <h6 class="text-muted">Consultas SII</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-info example-btn"
+                                        data-message="¿Qué información tienes de mi empresa?">
+                                    <i class="fas fa-building me-1"></i>
+                                    Info empresa
+                                </button>
+                            </li>
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-info example-btn"
+                                        data-message="¿Cómo debo llenar el formulario F29?">
+                                    <i class="fas fa-file-alt me-1"></i>
+                                    Ayuda F29
+                                </button>
+                            </li>
+                            <li class="mb-2">
+                                <button class="btn btn-sm btn-outline-info example-btn"
+                                        data-message="¿Cuáles son mis obligaciones tributarias?">
+                                    <i class="fas fa-gavel me-1"></i>
+                                    Obligaciones
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <div class="col-md-6">
+                        <h6 class="text-muted">Contexto de Ejemplo</h6>
+                        <pre class="bg-light p-3 rounded small">{
+  "user_name": "Juan Pérez",
+  "company_name": "Mi Empresa SPA",
+  "rut": "12.345.678-9",
+  "current_period": "2024-01"
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Info Sidebar -->
+    <div class="col-md-4">
+        <!-- Agent Summary -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Información del Agente
+                </h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Nombre:</strong></td>
+                        <td>{{ agent.name }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Tipo:</strong></td>
+                        <td>
+                            <span class="badge bg-primary">{{ agent.get_agent_type_display }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Estado:</strong></td>
+                        <td>
+                            <span class="badge bg-{% if agent.status == 'active' %}success{% elif agent.status == 'testing' %}warning{% else %}secondary{% endif %}">
+                                {{ agent.get_status_display }}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Modelo:</strong></td>
+                        <td><code>{{ agent.model_name }}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Temperatura:</strong></td>
+                        <td>{{ agent.temperature }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Available Tools -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-tools me-2"></i>
+                    Herramientas Disponibles
+                </h6>
+                <span class="badge bg-primary">{{ available_tools|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if available_tools %}
+                    <div class="list-group list-group-flush">
+                        {% for assignment in available_tools %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                            <div>
+                                <small class="fw-bold">{{ assignment.common_tool.display_name }}</small>
+                                <br>
+                                <small class="text-muted">{{ assignment.common_tool.description|truncatewords:8 }}</small>
+                            </div>
+                            <div>
+                                <i class="fas fa-check-circle text-success" title="Habilitada"></i>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-3">
+                        <i class="fas fa-tools fa-2x text-muted mb-2"></i>
+                        <p class="text-muted mb-2">Sin herramientas disponibles</p>
+                        <a href="{% url 'internal:chat:agent_tools' agent.id %}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-plus me-1"></i>
+                            Asignar Herramientas
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Tips -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Consejos de Prueba
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled small">
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Usa mensajes específicos y claros
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Proporciona contexto relevante cuando sea necesario
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Prueba diferentes tipos de consultas
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Observa qué herramientas utiliza el agente
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle example buttons
+    const exampleButtons = document.querySelectorAll('.example-btn');
+    const messageTextarea = document.getElementById('{{ form.message.id_for_label }}');
+    const testForm = document.querySelector('.test-agent-form');
+    const testButton = document.getElementById('testAgentBtn');
+
+    exampleButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const message = this.getAttribute('data-message');
+            messageTextarea.value = message;
+            messageTextarea.focus();
+        });
+    });
+
+    // Handle Enter key submission in message textarea
+    if (messageTextarea) {
+        messageTextarea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                // Simular clic en el botón para que se ejecute el mismo flujo
+                testButton.click();
+            }
+        });
+    }
+
+    // Auto-resize textareas
+    const textareas = document.querySelectorAll('textarea');
+    textareas.forEach(textarea => {
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+    });
+
+    // Handle form submission with loading state
+    testForm.addEventListener('submit', function(e) {
+        // Show loading state
+        const btnContent = testButton.querySelector('.btn-content');
+        const btnLoading = testButton.querySelector('.btn-loading');
+
+        btnContent.classList.add('d-none');
+        btnLoading.classList.remove('d-none');
+        testButton.disabled = true;
+
+        // Optional: Add loading overlay to form
+        const formCard = testForm.closest('.card');
+        if (formCard) {
+            formCard.style.opacity = '0.7';
+            formCard.style.pointerEvents = 'none';
+        }
+
+        // Show processing message
+        showProcessingMessage();
+    });
+
+
+    function showProcessingMessage() {
+        // Create and show a toast notification
+        const toastContainer = document.getElementById('toast-container') || createToastContainer();
+        const toast = document.createElement('div');
+        toast.className = 'toast align-items-center text-white bg-info border-0';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        Ejecutando agente... Esto puede tardar unos segundos.
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        `;
+
+        toastContainer.appendChild(toast);
+        const bsToast = new bootstrap.Toast(toast, { delay: 15000 });
+        bsToast.show();
+
+        // Clean up after toast is hidden
+        toast.addEventListener('hidden.bs.toast', function() {
+            toast.remove();
+        });
+    }
+
+    function createToastContainer() {
+        const container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '1055';
+        document.body.appendChild(container);
+        return container;
+    }
+});
+</script>
+{% endblock %}

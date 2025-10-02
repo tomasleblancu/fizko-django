@@ -67,6 +67,7 @@ LOCAL_APPS = [
     'apps.chat',
     'apps.contacts',
     'apps.hr',
+    'apps.internal',  # Interfaces administrativas internas
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

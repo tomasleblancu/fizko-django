@@ -33,22 +33,19 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user_email = self.request.user.email
-        return UserOnboarding.objects.filter(user_email=user_email)
+        return UserOnboarding.objects.filter(user=self.request.user)
 
     @action(detail=False, methods=['get'])
     def status(self, request):
         """
         Obtiene el estado general del onboarding del usuario
         """
-        user_email = request.user.email
-        
         # Obtener pasos activos
         active_steps = OnboardingStep.objects.filter(is_active=True)
-        
+
         # Obtener progreso del usuario
         user_onboarding = UserOnboarding.objects.filter(
-            user_email=user_email,
+            user=request.user,
             step__is_active=True
         )
         
@@ -102,11 +99,9 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         """
         Completa todo el onboarding del usuario
         """
-        user_email = request.user.email
-        
         # Completar todos los pasos pendientes
         pending_steps = UserOnboarding.objects.filter(
-            user_email=user_email,
+            user=request.user,
             status__in=['not_started', 'in_progress']
         )
         
@@ -124,12 +119,11 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Finaliza el onboarding asegurándose de que la empresa esté creada
         SEGURIDAD: Siempre verifica credenciales antes de asignar empresa
         """
-        user_email = request.user.email
         
         try:
             # Buscar datos del paso de empresa completado
             company_step_data = UserOnboarding.objects.filter(
-                user_email=user_email,
+                user=request.user,
                 step__name='company',
                 status='completed'
             ).first()
@@ -160,7 +154,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             # Verificar si el usuario ya está asociado a esta empresa específica
             existing_user_company = Company.objects.filter(
                 tax_id=tax_id,
-                taxpayer_sii_credentials__user__email=user_email
+                taxpayer_sii_credentials__user=request.user
             ).first()
             
             # if existing_user_company:
@@ -218,9 +212,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
             # Crear registro de finalización para el usuario
             UserOnboarding.objects.update_or_create(
-                user_email=user_email,
+                user=request.user,
                 step=finalized_step,
                 defaults={
+                    'user_email': request.user.email,
                     'status': 'completed',
                     'completed_at': timezone.now(),
                     'step_data': {
@@ -251,7 +246,6 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         """
         Actualizar el estado de un paso específico
         """
-        user_email = request.user.email
         step_number = request.data.get('step')
         step_data = request.data.get('data', {})
         new_status = request.data.get('status', 'completed')
@@ -265,9 +259,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         try:
             step = OnboardingStep.objects.get(step_order=step_number, is_active=True)
             user_onboarding, created = UserOnboarding.objects.get_or_create(
-                user_email=user_email,
+                user=request.user,
                 step=step,
                 defaults={
+                    'user_email': request.user.email,
                     'status': 'not_started',
                     'started_at': timezone.now()
                 }
@@ -571,12 +566,11 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         Función de utilidad para auto-completar pasos faltantes
         SOLO para usuarios que ya han creado empresa pero tienen pasos incompletos
         """
-        user_email = request.user.email
         
         # Verificar si el usuario ya tiene empresa creada
         from apps.companies.models import Company
         user_companies = Company.objects.filter(
-            taxpayer_sii_credentials__user__email=user_email
+            taxpayer_sii_credentials__user=request.user
         )
         
         if not user_companies.exists():
@@ -594,9 +588,10 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         fixed_steps = []
         for step in all_required_steps:
             user_step, created = UserOnboarding.objects.get_or_create(
-                user_email=user_email,
+                user=request.user,
                 step=step,
                 defaults={
+                    'user_email': request.user.email,
                     'status': 'completed',
                     'started_at': timezone.now(),
                     'completed_at': timezone.now(),
@@ -634,7 +629,6 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         1. El usuario tiene skip_onboarding = True en su perfil (usuarios invitados)
         2. O si fue finalizado explícitamente
         """
-        user_email = request.user.email
 
         # Verificar si el usuario tiene skip_onboarding activado
         skip_onboarding = False
@@ -660,7 +654,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
         # Verificar si existe un registro de finalización
         finalized_step = UserOnboarding.objects.filter(
-            user_email=user_email,
+            user=request.user,
             step__name='finalized',
             status='completed'
         ).first()
@@ -676,7 +670,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         ).count()
 
         completed_required_steps = UserOnboarding.objects.filter(
-            user_email=user_email,
+            user=request.user,
             step__is_active=True,
             step__is_required=True,
             status='completed'
@@ -701,7 +695,7 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
 
             for step in all_required_steps:
                 user_step = UserOnboarding.objects.filter(
-                    user_email=user_email,
+                    user=request.user,
                     step=step
                 ).first()
                 if not user_step or user_step.status != 'completed':
@@ -731,8 +725,7 @@ class OnboardingProgressViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user_email = self.request.user.email
-        return OnboardingProgress.objects.filter(user_email=user_email)
+        return OnboardingProgress.objects.filter(user=self.request.user)
 
 
 @api_view(['POST'])

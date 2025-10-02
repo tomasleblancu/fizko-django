@@ -1,0 +1,268 @@
+{% extends 'internal/chat/base.html' %}
+
+{% block page_title %}Conversación {{ conversation.title|default:"Sin título" }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Detalle completo de la conversación con el asistente IA</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'internal:chat:conversation_list' %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver a Conversaciones
+    </a>
+    {% if conversation.status == 'active' %}
+        <form method="post" action="{% url 'internal:chat:conversation_archive' conversation.id %}"
+              style="display: inline;"
+              onsubmit="return confirm('¿Estás seguro de archivar esta conversación?')">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-warning">
+                <i class="fas fa-archive me-2"></i>
+                Archivar Conversación
+            </button>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Información de la Conversación -->
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Información de la Conversación
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <dl class="row">
+                            <dt class="col-sm-4">Título:</dt>
+                            <dd class="col-sm-8">{{ conversation.title|default:"Sin título" }}</dd>
+
+                            <dt class="col-sm-4">Agente:</dt>
+                            <dd class="col-sm-8">
+                                <i class="fas fa-robot me-1"></i>
+                                {{ conversation.agent_name }}
+                            </dd>
+
+                            <dt class="col-sm-4">Estado:</dt>
+                            <dd class="col-sm-8">
+                                {% if conversation.status == 'active' %}
+                                    <span class="badge bg-success">Activa</span>
+                                {% elif conversation.status == 'ended' %}
+                                    <span class="badge bg-warning">Finalizada</span>
+                                {% elif conversation.status == 'archived' %}
+                                    <span class="badge bg-secondary">Archivada</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark">{{ conversation.get_status_display }}</span>
+                                {% endif %}
+                            </dd>
+                        </dl>
+                    </div>
+                    <div class="col-md-6">
+                        <dl class="row">
+                            <dt class="col-sm-4">Total Mensajes:</dt>
+                            <dd class="col-sm-8">
+                                <span class="badge bg-primary">{{ conversation.message_count }}</span>
+                            </dd>
+
+                            <dt class="col-sm-4">Creada:</dt>
+                            <dd class="col-sm-8">{{ conversation.created_at|date:"d/m/Y H:i" }}</dd>
+
+                            <dt class="col-sm-4">Actualizada:</dt>
+                            <dd class="col-sm-8">{{ conversation.updated_at|date:"d/m/Y H:i" }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mensajes de la Conversación -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Historial de Mensajes ({{ conversation.messages.count }})
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if conversation.messages.exists %}
+                    <div class="chat-container" style="max-height: 600px; overflow-y: auto;">
+                        {% for message in conversation.messages.all %}
+                            <div class="message-item mb-3 {% if message.role == 'user' %}text-end{% endif %}">
+                                <div class="message-bubble
+                                     {% if message.role == 'user' %}
+                                         bg-primary text-white ms-auto
+                                     {% else %}
+                                         bg-light border
+                                     {% endif %}"
+                                     style="max-width: 70%; padding: 12px 16px; border-radius: 18px;
+                                            {% if message.role == 'user' %}display: inline-block;{% else %}display: inline-block;{% endif %}">
+
+                                    <!-- Header del mensaje -->
+                                    <div class="message-header mb-2">
+                                        <small class="{% if message.role == 'user' %}text-white-50{% else %}text-muted{% endif %}">
+                                            <i class="fas {% if message.role == 'user' %}fa-user{% else %}fa-robot{% endif %} me-1"></i>
+                                            <strong class="text-capitalize">{{ message.role }}:</strong>
+                                            {{ message.created_at|date:"d/m/Y H:i:s" }}
+                                        </small>
+                                    </div>
+
+                                    <!-- Contenido del mensaje -->
+                                    <div class="message-content">
+                                        {% if message.content %}
+                                            {{ message.content|linebreaks }}
+                                        {% else %}
+                                            <em class="{% if message.role == 'user' %}text-white-50{% else %}text-muted{% endif %}">
+                                                Sin contenido de mensaje
+                                            </em>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Metadata adicional si existe -->
+                                    {% if message.metadata %}
+                                        <div class="message-metadata mt-2 pt-2 border-top
+                                             {% if message.role == 'user' %}border-white-50{% else %}border-secondary{% endif %}">
+                                            <small class="{% if message.role == 'user' %}text-white-50{% else %}text-muted{% endif %}">
+                                                <i class="fas fa-info-circle me-1"></i>
+                                                Metadata disponible
+                                            </small>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Formulario para agregar mensaje como asistente -->
+                    <div class="add-message-section mt-4 pt-3 border-top">
+                        <h6 class="text-muted mb-3">
+                            <i class="fas fa-robot me-2"></i>
+                            Agregar Mensaje como Asistente
+                        </h6>
+                        <form method="post" action="{% url 'internal:chat:add_assistant_message' conversation.id %}">
+                            {% csrf_token %}
+                            <div class="row">
+                                <div class="col-md-9">
+                                    <div class="form-group">
+                                        <textarea name="content"
+                                                  class="form-control"
+                                                  rows="3"
+                                                  placeholder="Escribe el mensaje que el asistente enviará..."
+                                                  required></textarea>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-primary w-100">
+                                        <i class="fas fa-paper-plane me-2"></i>
+                                        Enviar Mensaje
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Este mensaje aparecerá como enviado por el asistente IA
+                            </small>
+                        </form>
+                    </div>
+
+                    <!-- Estadísticas del Chat -->
+                    <div class="chat-stats mt-4 pt-3 border-top">
+                        <div class="row text-center">
+                            <div class="col-md-3">
+                                <div class="stat-item">
+                                    <h6 class="text-muted mb-1">Total Mensajes</h6>
+                                    <span class="h5 text-primary">{{ conversation.messages.count }}</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-item">
+                                    <h6 class="text-muted mb-1">Mensajes Usuario</h6>
+                                    <span class="h5 text-success">{{ user_messages_count }}</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-item">
+                                    <h6 class="text-muted mb-1">Respuestas IA</h6>
+                                    <span class="h5 text-info">{{ assistant_messages_count }}</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-item">
+                                    <h6 class="text-muted mb-1">Duración</h6>
+                                    <span class="h5 text-warning">
+                                        {% if conversation.messages.exists %}
+                                            {% with first_msg=conversation.messages.first last_msg=conversation.messages.last %}
+                                                {% if first_msg.created_at and last_msg.created_at %}
+                                                    {% widthratio last_msg.created_at|timesince:first_msg.created_at 1 1 %}
+                                                {% else %}
+                                                    --
+                                                {% endif %}
+                                            {% endwith %}
+                                        {% else %}
+                                            --
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-comment-slash fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No hay mensajes en esta conversación</h5>
+                        <p class="text-muted">Esta conversación no contiene mensajes aún.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.message-bubble {
+    word-wrap: break-word;
+    word-break: break-word;
+}
+
+.chat-container {
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}
+
+.chat-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chat-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.chat-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.chat-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.stat-item {
+    padding: 8px;
+}
+
+@media (max-width: 768px) {
+    .message-bubble {
+        max-width: 85% !important;
+    }
+}
+</style>
+{% endblock %}

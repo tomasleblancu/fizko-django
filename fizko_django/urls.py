@@ -9,6 +9,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
+from django.views.generic import RedirectView
 
 def health_check(request):
     """Simple health check endpoint"""
@@ -18,12 +19,15 @@ def health_check(request):
 urlpatterns = [
     # Admin
     path('admin/', admin.site.urls),
-    
+
     # Health check
     path('health/', health_check, name='health-check'),
 
-    # Chat management templates (separate from API)
-    path('chat/', include('apps.chat.template_urls')),
+    # Internal administrative interfaces
+    path('internal/', include('apps.internal.urls')),
+
+    # Redirect /chat/ to /internal/chat/ (backward compatibility)
+    path('chat/', RedirectView.as_view(url='/internal/chat/', permanent=False)),
 
     # API v1 endpoints
     path('api/v1/', include([

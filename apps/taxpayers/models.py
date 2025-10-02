@@ -45,7 +45,18 @@ class TaxPayer(TimeStampedModel):
         blank=True,
         help_text="Configuración de procesos tributarios habilitados para este contribuyente"
     )
-    
+
+    # Segmentación de empresa
+    company_segment = models.ForeignKey(
+        'tasks.CompanySegment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='taxpayers',
+        verbose_name="Segmento de Empresa",
+        help_text="Segmento al que pertenece este contribuyente para asignación automática de procesos"
+    )
+
     class Meta:
         db_table = 'taxpayers'
         verbose_name = 'TaxPayer'
@@ -133,6 +144,27 @@ class TaxPayer(TimeStampedModel):
         settings[process_type] = False
         self.setting_procesos = settings
         self.save()
+
+    def get_applicable_process_templates(self):
+        """Retorna las plantillas de procesos aplicables a este contribuyente"""
+        from apps.tasks.models import ProcessAssignmentRule
+
+        if not self.company_segment:
+            return []
+
+        # Obtener reglas activas para el segmento del contribuyente
+        rules = ProcessAssignmentRule.objects.filter(
+            segment=self.company_segment,
+            is_active=True
+        ).select_related('template').order_by('-priority')
+
+        # Filtrar solo las reglas que aplican a esta empresa
+        applicable_templates = []
+        for rule in rules:
+            if rule.applies_to_company(self.company):
+                applicable_templates.append(rule.template)
+
+        return applicable_templates
 
 
 class TaxpayerSiiCredentials(TimeStampedModel):

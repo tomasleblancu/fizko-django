@@ -1,0 +1,51 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}Regla: {{ rule.template.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Información de la Regla</h5>
+    </div>
+    <div class="card-body">
+        <dl class="row">
+            <dt class="col-sm-3">Plantilla:</dt>
+            <dd class="col-sm-9">
+                <a href="{% url 'internal:processes:template_detail' rule.template.id %}">
+                    {{ rule.template.name }}
+                </a>
+            </dd>
+
+            <dt class="col-sm-3">Segmento:</dt>
+            <dd class="col-sm-9">
+                <a href="{% url 'internal:processes:segment_detail' rule.segment.id %}">
+                    {{ rule.segment.name }}
+                </a>
+            </dd>
+
+            <dt class="col-sm-3">Prioridad:</dt>
+            <dd class="col-sm-9">
+                <span class="badge bg-secondary">{{ rule.priority }}</span>
+            </dd>
+
+            <dt class="col-sm-3">Auto-asignar:</dt>
+            <dd class="col-sm-9">
+                {% if rule.auto_assign %}
+                    <i class="fas fa-check-circle text-success"></i> Sí
+                {% else %}
+                    <i class="fas fa-times-circle text-muted"></i> No
+                {% endif %}
+            </dd>
+
+            <dt class="col-sm-3">Estado:</dt>
+            <dd class="col-sm-9">
+                {% if rule.is_active %}
+                    <span class="badge bg-success">Activa</span>
+                {% else %}
+                    <span class="badge bg-secondary">Inactiva</span>
+                {% endif %}
+            </dd>
+        </dl>
+    </div>
+</div>
+{% endblock %}

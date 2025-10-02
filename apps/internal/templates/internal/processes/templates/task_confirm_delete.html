@@ -1,0 +1,58 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}Eliminar Tarea - {{ template.name }}{% endblock %}
+
+{% block page_actions %}
+<a href="{% url 'internal:processes:template_detail' template.id %}" class="btn btn-secondary">
+    <i class="fas fa-arrow-left me-1"></i> Volver a Plantilla
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            Confirmar Eliminación
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning" role="alert">
+            <strong>¿Estás seguro que deseas eliminar esta tarea?</strong>
+            <p class="mb-0 mt-2">Esta acción no se puede deshacer.</p>
+        </div>
+
+        <div class="mb-4">
+            <h6>Información de la Tarea:</h6>
+            <dl class="row">
+                <dt class="col-sm-3">Título:</dt>
+                <dd class="col-sm-9">{{ task.task_title }}</dd>
+
+                <dt class="col-sm-3">Orden:</dt>
+                <dd class="col-sm-9">{{ task.execution_order }}</dd>
+
+                <dt class="col-sm-3">Tipo:</dt>
+                <dd class="col-sm-9">{{ task.get_task_type_display }}</dd>
+
+                <dt class="col-sm-3">Prioridad:</dt>
+                <dd class="col-sm-9">{{ task.get_priority_display }}</dd>
+
+                {% if task.task_description %}
+                <dt class="col-sm-3">Descripción:</dt>
+                <dd class="col-sm-9">{{ task.task_description }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+
+        <form method="post">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">
+                <i class="fas fa-trash me-1"></i> Sí, Eliminar Tarea
+            </button>
+            <a href="{% url 'internal:processes:template_detail' template.id %}" class="btn btn-secondary ms-2">
+                Cancelar
+            </a>
+        </form>
+    </div>
+</div>
+{% endblock %}

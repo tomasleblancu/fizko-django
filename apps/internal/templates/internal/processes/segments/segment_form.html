@@ -1,0 +1,60 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}{{ action }} Segmento{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">{{ action }} Segmento de Empresas</h5>
+    </div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="mb-3">
+                <label for="{{ form.name.id_for_label }}" class="form-label">
+                    Nombre <span class="text-danger">*</span>
+                </label>
+                {{ form.name }}
+                {% if form.name.errors %}
+                    <div class="text-danger small">{{ form.name.errors.0 }}</div>
+                {% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="{{ form.description.id_for_label }}" class="form-label">
+                    Descripción
+                </label>
+                {{ form.description }}
+                {% if form.description.errors %}
+                    <div class="text-danger small">{{ form.description.errors.0 }}</div>
+                {% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="{{ form.criteria.id_for_label }}" class="form-label">
+                    Criterios de Segmentación (JSON)
+                </label>
+                {{ form.criteria }}
+                {% if form.criteria.errors %}
+                    <div class="text-danger small">{{ form.criteria.errors.0 }}</div>
+                {% endif %}
+                <small class="text-muted">
+                    Define los criterios de segmentación en formato JSON.
+                    Ejemplo: {"industry": "retail", "size": "large"}
+                </small>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save me-1"></i> Guardar
+                </button>
+                <a href="{% if segment %}{% url 'internal:processes:segment_detail' segment.id %}{% else %}{% url 'internal:processes:segment_list' %}{% endif %}"
+                   class="btn btn-secondary">
+                    <i class="fas fa-times me-1"></i> Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,215 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}Dashboard de Procesos{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">Vista general del sistema de gestión de procesos tributarios</p>
+{% endblock %}
+
+{% block content %}
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_templates }}</h4>
+                        <p class="card-text">Plantillas Totales</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-sitemap fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ active_templates }}</h4>
+                        <p class="card-text">Plantillas Activas</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_segments }}</h4>
+                        <p class="card-text">Segmentos de Empresas</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-layer-group fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ active_rules }}</h4>
+                        <p class="card-text">Reglas Activas</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-magic fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Templates -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-sitemap me-2"></i>
+                    Plantillas Recientes
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if recent_templates %}
+                    <div class="list-group list-group-flush">
+                        {% for template in recent_templates %}
+                            <a href="{% url 'internal:processes:template_detail' template.id %}"
+                               class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">{{ template.name }}</h6>
+                                        <small class="text-muted">{{ template.get_process_type_display }}</small>
+                                    </div>
+                                    <span class="status-badge {% if template.status == 'active' %}status-active{% else %}status-inactive{% endif %}">
+                                        {{ template.get_status_display }}
+                                    </span>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No hay plantillas creadas aún.</p>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{% url 'internal:processes:template_list' %}" class="btn btn-sm btn-outline-primary">
+                    Ver Todas <i class="fas fa-arrow-right ms-1"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Segments -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-layer-group me-2"></i>
+                    Segmentos Principales
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if segments_with_counts %}
+                    <div class="list-group list-group-flush">
+                        {% for segment in segments_with_counts %}
+                            <a href="{% url 'internal:processes:segment_detail' segment.id %}"
+                               class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">{{ segment.name }}</h6>
+                                        <small class="text-muted">{{ segment.description|truncatewords:8 }}</small>
+                                    </div>
+                                    <span class="badge bg-info">
+                                        {{ segment.taxpayer_count }} empresas
+                                    </span>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No hay segmentos creados aún.</p>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{% url 'internal:processes:segment_list' %}" class="btn btn-sm btn-outline-info">
+                    Ver Todos <i class="fas fa-arrow-right ms-1"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Rules -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">
+                    <i class="fas fa-magic me-2"></i>
+                    Reglas de Asignación Activas
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if active_assignment_rules %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Prioridad</th>
+                                    <th>Plantilla</th>
+                                    <th>Segmento</th>
+                                    <th>Auto-asignar</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rule in active_assignment_rules %}
+                                    <tr>
+                                        <td>
+                                            <span class="badge bg-secondary">{{ rule.priority }}</span>
+                                        </td>
+                                        <td>{{ rule.template.name }}</td>
+                                        <td>{{ rule.segment.name }}</td>
+                                        <td>
+                                            {% if rule.auto_assign %}
+                                                <i class="fas fa-check-circle text-success"></i> Sí
+                                            {% else %}
+                                                <i class="fas fa-times-circle text-muted"></i> No
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{% url 'internal:processes:rule_detail' rule.id %}"
+                                               class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-0">No hay reglas activas.</p>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{% url 'internal:processes:rule_list' %}" class="btn btn-sm btn-outline-warning">
+                    Ver Todas <i class="fas fa-arrow-right ms-1"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

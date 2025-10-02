@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 from apps.core.models import TimeStampedModel
 
 class OnboardingStep(TimeStampedModel):
@@ -35,29 +36,36 @@ class UserOnboarding(TimeStampedModel):
         ('completed', 'Completado'),
         ('skipped', 'Omitido'),
     ]
-    
-    user_email = models.EmailField()
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='onboarding_steps',
+        null=True,
+        blank=True
+    )
+    user_email = models.EmailField()  # Mantener por compatibilidad, pero deprecated
     company_rut = models.CharField(max_length=12, blank=True)
     company_dv = models.CharField(max_length=1, blank=True)
     step = models.ForeignKey(OnboardingStep, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
-    
+
     # Fechas
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    
+
     # Datos del paso
     step_data = models.JSONField(default=dict, help_text="Datos específicos del paso")
-    
+
     class Meta:
         db_table = 'user_onboarding'
         verbose_name = 'User Onboarding'
         verbose_name_plural = 'User Onboarding'
-        unique_together = ['user_email', 'step']
+        unique_together = [['user', 'step'], ['user_email', 'step']]  # Mantener ambos por compatibilidad
         ordering = ['step__step_order']
-    
+
     def __str__(self):
-        return f"{self.user_email} - {self.step.title} ({self.get_status_display()})"
+        return f"{self.user.email if self.user else self.user_email} - {self.step.title} ({self.get_status_display()})"
     
     def complete_step(self, step_data=None):
         """Completa el paso de onboarding"""
@@ -73,18 +81,25 @@ class OnboardingProgress(models.Model):
     """
     Vista del progreso general de onboarding
     """
-    user_email = models.EmailField(unique=True)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='onboarding_progress',
+        null=True,
+        blank=True
+    )
+    user_email = models.EmailField(unique=True)  # Mantener por compatibilidad, pero deprecated
     total_steps = models.IntegerField(default=0)
     completed_steps = models.IntegerField(default=0)
     progress_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     is_completed = models.BooleanField(default=False)
     last_activity = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         db_table = 'onboarding_progress'
         verbose_name = 'Onboarding Progress'
         verbose_name_plural = 'Onboarding Progress'
         managed = False  # Será una vista de base de datos
-    
+
     def __str__(self):
-        return f"{self.user_email} - {self.progress_percentage}% completado"
+        return f"{self.user.email if self.user else self.user_email} - {self.progress_percentage}% completado"

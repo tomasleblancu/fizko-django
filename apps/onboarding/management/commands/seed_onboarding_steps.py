@@ -8,24 +8,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         steps_data = [
             {
-                'name': 'user_info',
-                'title': 'Información Personal',
-                'description': 'Información personal del usuario y configuración de perfil',
-                'step_order': 1,
-                'is_required': True,
-                'is_active': True,
-                'step_config': {
-                    'type': 'form',
-                    'fields': ['first_name', 'last_name', 'profession', 'experience'],
-                    'show_progress': True,
-                    'allow_skip': False
-                }
-            },
-            {
                 'name': 'business_info',
                 'title': 'Información del Negocio',
                 'description': 'Detalles sobre la empresa y tipo de negocio',
-                'step_order': 2,
+                'step_order': 1,
                 'is_required': True,
                 'is_active': True,
                 'step_config': {
@@ -39,7 +25,7 @@ class Command(BaseCommand):
                 'name': 'company',
                 'title': 'Credenciales SII',
                 'description': 'Conexión con el Servicio de Impuestos Internos para automatizar la gestión tributaria',
-                'step_order': 3,
+                'step_order': 2,
                 'is_required': True,
                 'is_active': True,
                 'step_config': {
@@ -58,7 +44,7 @@ class Command(BaseCommand):
         deactivated_count = 0
 
         # First, deactivate old steps that are no longer needed
-        old_step_names = ['welcome', 'profile', 'business', 'process_settings']
+        old_step_names = ['welcome', 'profile', 'business', 'process_settings', 'user_info']
         old_steps = OnboardingStep.objects.filter(name__in=old_step_names)
         for old_step in old_steps:
             old_step.is_active = False

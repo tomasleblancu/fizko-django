@@ -1,0 +1,56 @@
+{% extends 'internal/processes/base.html' %}
+
+{% block page_title %}Reglas de Asignación{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        {% if rules %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Prioridad</th>
+                            <th>Plantilla</th>
+                            <th>Segmento</th>
+                            <th>Auto-asignar</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rule in rules %}
+                            <tr>
+                                <td>
+                                    <span class="badge bg-secondary">{{ rule.priority }}</span>
+                                </td>
+                                <td>
+                                    <a href="{% url 'internal:processes:rule_detail' rule.id %}">
+                                        {{ rule.template.name }}
+                                    </a>
+                                </td>
+                                <td>{{ rule.segment.name }}</td>
+                                <td>
+                                    {% if rule.auto_assign %}
+                                        <i class="fas fa-check-circle text-success"></i>
+                                    {% else %}
+                                        <i class="fas fa-times-circle text-muted"></i>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if rule.is_active %}
+                                        <span class="badge bg-success">Activa</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactiva</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted">No hay reglas de asignación creadas.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

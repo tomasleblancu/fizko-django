@@ -1,0 +1,319 @@
+{% extends 'internal/chat/base.html' %}
+
+{% block page_title %}Prompts - {{ agent.name }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-muted mb-0">{{ agent.get_agent_type_display }} - Gestión de prompts del sistema</p>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group">
+    <a href="{% url 'internal:chat:create_prompt' agent.id %}" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>
+        Crear Prompt
+    </a>
+    <a href="{% url 'internal:chat:agent_detail' agent.id %}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-2"></i>
+        Volver al Agente
+    </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Prompts Activos -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-comments me-2"></i>
+                    Prompts del Sistema
+                    <span class="badge bg-primary ms-2">{{ prompts|length }}</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if prompts %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Tipo</th>
+                                    <th>Estado</th>
+                                    <th>Prioridad</th>
+                                    <th>Modificado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for prompt in prompts %}
+                                <tr>
+                                    <td>
+                                        <div>
+                                            <strong>{{ prompt.name }}</strong>
+                                            {% if prompt.description %}
+                                                <br><small class="text-muted">{{ prompt.description|truncatechars:60 }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-{% if prompt.prompt_type == 'system' %}primary{% elif prompt.prompt_type == 'instruction' %}info{% elif prompt.prompt_type == 'example' %}warning{% else %}secondary{% endif %}">
+                                            {{ prompt.get_prompt_type_display }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if prompt.is_active %}
+                                            <span class="badge bg-success">Activo</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactivo</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ prompt.priority }}</span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ prompt.updated_at|date:"d/m/Y H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-info"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#viewPromptModal"
+                                                    onclick="showPromptContent('{{ prompt.name|escapejs }}', `{{ prompt.content|escapejs }}`, '{{ prompt.get_prompt_type_display }}')"
+                                                    title="Ver contenido">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            <a href="{% url 'internal:chat:create_prompt' agent.id %}?edit={{ prompt.id }}"
+                                               class="btn btn-outline-primary" title="Editar">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            <button type="button" class="btn btn-outline-warning"
+                                                    onclick="togglePrompt({{ prompt.id }}, {{ prompt.is_active|yesno:'false,true' }})"
+                                                    title="{% if prompt.is_active %}Desactivar{% else %}Activar{% endif %}">
+                                                <i class="fas fa-{% if prompt.is_active %}pause{% else %}play{% endif %}"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger"
+                                                    onclick="deletePrompt({{ prompt.id }}, '{{ prompt.name|escapejs }}')"
+                                                    title="Eliminar">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-comments fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No hay prompts configurados</h5>
+                        <p class="text-muted">Los prompts definen el comportamiento y personalidad del agente</p>
+                        <a href="{% url 'internal:chat:create_prompt' agent.id %}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>
+                            Crear Primer Prompt
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Información sobre tipos de prompts -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Tipos de Prompts
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start mb-3">
+                            <span class="badge bg-primary me-3 mt-1">System</span>
+                            <div>
+                                <strong>Prompt del Sistema</strong>
+                                <p class="text-muted small mb-0">Define la personalidad base y comportamiento fundamental del agente.</p>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-start mb-3">
+                            <span class="badge bg-info me-3 mt-1">Instruction</span>
+                            <div>
+                                <strong>Instrucciones</strong>
+                                <p class="text-muted small mb-0">Proporciona instrucciones específicas sobre cómo realizar tareas.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-start mb-3">
+                            <span class="badge bg-warning me-3 mt-1">Example</span>
+                            <div>
+                                <strong>Ejemplos</strong>
+                                <p class="text-muted small mb-0">Muestra ejemplos concretos de interacciones exitosas.</p>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-start mb-3">
+                            <span class="badge bg-secondary me-3 mt-1">Context</span>
+                            <div>
+                                <strong>Contexto</strong>
+                                <p class="text-muted small mb-0">Proporciona contexto adicional relevante para las respuestas.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para ver contenido del prompt -->
+<div class="modal fade" id="viewPromptModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-eye me-2"></i>
+                    <span id="modalPromptName">Prompt</span>
+                    <small class="text-muted ms-2">(<span id="modalPromptType"></span>)</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="border rounded p-3 bg-light" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="modalPromptContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showPromptContent(name, content, type) {
+    document.getElementById('modalPromptName').textContent = name;
+    document.getElementById('modalPromptType').textContent = type;
+    document.getElementById('modalPromptContent').textContent = content;
+}
+
+function togglePrompt(promptId, newStatus) {
+    const action = newStatus ? 'activar' : 'desactivar';
+    if (confirm(`¿Estás seguro de ${action} este prompt?`)) {
+        // Obtener el CSRF token
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                         document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                         getCookie('csrftoken');
+
+        // Realizar llamada AJAX para cambiar estado
+        fetch(`{% url 'internal:chat:toggle_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                is_active: newStatus
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(data.message || `Prompt ${action}do exitosamente`, 'success');
+                location.reload();
+            } else {
+                showNotification(data.error || `Error al ${action} el prompt`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification(`Error de conexión al ${action} el prompt`, 'error');
+        });
+    }
+}
+
+function deletePrompt(promptId, promptName) {
+    if (confirm(`¿Estás seguro de eliminar el prompt "${promptName}"? Esta acción no se puede deshacer.`)) {
+        // Obtener el CSRF token
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                         document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                         getCookie('csrftoken');
+
+        // Realizar llamada AJAX para eliminar
+        fetch(`{% url 'internal:chat:delete_prompt_api' agent.id 0 %}`.replace('0', promptId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(data.message || 'Prompt eliminado exitosamente', 'success');
+                location.reload();
+            } else {
+                showNotification(data.error || 'Error al eliminar el prompt', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Error de conexión al eliminar el prompt', 'error');
+        });
+    }
+}
+
+function showNotification(message, type = 'info') {
+    // Crear notificación toast
+    const toastHtml = `
+        <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : 'success'} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'check-circle'} me-2"></i>
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+
+    // Agregar al contenedor de toasts
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+
+    // Mostrar toast
+    const toastElement = toastContainer.lastElementChild;
+    const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
+    toast.show();
+
+    // Limpiar toast después de que se oculte
+    toastElement.addEventListener('hidden.bs.toast', function() {
+        this.remove();
+    });
+}
+
+// Función para obtener cookies
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

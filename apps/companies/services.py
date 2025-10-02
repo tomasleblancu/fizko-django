@@ -49,11 +49,21 @@ class CompanyCreationService:
             }
 
         except Exception as e:
-            logger.error(f"Error validating SII credentials: {str(e)}")
+            error_message = str(e)
+            logger.error(f"Error validating SII credentials: {error_message}")
+
+            # Detectar errores específicos de credenciales incorrectas
+            if "Login automático falló" in error_message or "No se encontró el cookie TOKEN" in error_message:
+                return {
+                    'success': False,
+                    'error': 'INVALID_CREDENTIALS',
+                    'message': 'RUT o contraseña incorrectos. Por favor, verifica tus credenciales del SII.'
+                }
+
             return {
                 'success': False,
                 'error': 'VALIDATION_ERROR',
-                'message': f'Error validando credenciales: {str(e)}'
+                'message': f'Error validando credenciales: {error_message}'
             }
 
     @staticmethod
@@ -441,22 +451,29 @@ class CompanyCreationService:
                     'message': 'Empresa sin TaxPayer configurado'
                 }
 
-            # Enviar tarea a Celery
-            task_result = create_processes_from_taxpayer_settings.delay(company_id=company_id)
+            # Enviar tarea a Celery DESPUÉS de completar la transacción
+            # Usar on_commit para asegurar que la empresa existe en BD antes de ejecutar la tarea
+            task_result = None
 
-            # Crear tracker para monitoreo
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=task_result,
-                task_name='create_processes_from_taxpayer_settings',
-                display_name='Creando procesos tributarios',
-                metadata={'company_id': company_id}
-            )
+            def launch_task():
+                nonlocal task_result
+                task_result = create_processes_from_taxpayer_settings.delay(company_id=company_id)
+
+                # Crear tracker para monitoreo
+                BackgroundTaskTracker.create_for_task(
+                    company=company,
+                    task_result=task_result,
+                    task_name='create_processes_from_taxpayer_settings',
+                    display_name='Creando procesos tributarios',
+                    metadata={'company_id': company_id}
+                )
+
+            transaction.on_commit(launch_task)
 
             return {
                 'status': 'success',
-                'message': 'Creación de procesos tributarios iniciada',
-                'task_id': task_result.id
+                'message': 'Creación de procesos tributarios programada',
+                'task_id': None  # Se asignará después del commit
             }
 
         except Exception as e:
@@ -483,35 +500,40 @@ class CompanyCreationService:
             fecha_desde = (today - timedelta(days=60)).replace(day=1).strftime('%Y-%m-%d')
 
             rut_parts = company.tax_id.split('-')
-            task_result = sync_sii_documents_task.delay(
-                company_rut=rut_parts[0],
-                company_dv=rut_parts[1] if len(rut_parts) > 1 else 'K',
-                fecha_desde=fecha_desde,
-                fecha_hasta=fecha_hasta,
-                user_email=user_email,
-                priority='high',
-                description=f'Sincronización inicial - {company.business_name}',
-                trigger_full_sync=True
-            )
 
-            # Crear tracker para monitoreo
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=task_result,
-                task_name='sync_sii_documents_task',
-                display_name='Sincronizando documentos SII',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'initial',
-                    'fecha_desde': fecha_desde,
-                    'fecha_hasta': fecha_hasta
-                }
-            )
+            # Lanzar tarea después del commit para asegurar que la empresa existe en BD
+            def launch_sync():
+                task_result = sync_sii_documents_task.delay(
+                    company_rut=rut_parts[0],
+                    company_dv=rut_parts[1] if len(rut_parts) > 1 else 'K',
+                    fecha_desde=fecha_desde,
+                    fecha_hasta=fecha_hasta,
+                    user_email=user_email,
+                    priority='high',
+                    description=f'Sincronización inicial - {company.business_name}',
+                    trigger_full_sync=True
+                )
+
+                # Crear tracker para monitoreo
+                BackgroundTaskTracker.create_for_task(
+                    company=company,
+                    task_result=task_result,
+                    task_name='sync_sii_documents_task',
+                    display_name='Sincronizando documentos SII',
+                    metadata={
+                        'company_id': company_id,
+                        'sync_type': 'initial',
+                        'fecha_desde': fecha_desde,
+                        'fecha_hasta': fecha_hasta
+                    }
+                )
+
+            transaction.on_commit(launch_sync)
 
             return {
                 'status': 'success',
-                'message': 'Sincronización inicial iniciada',
-                'task_id': task_result.id,
+                'message': 'Sincronización inicial programada',
+                'task_id': None,  # Se asignará después del commit
                 'sync_period': f'{fecha_desde} a {fecha_hasta}'
             }
 
@@ -538,53 +560,57 @@ class CompanyCreationService:
             company_rut = rut_parts[0]
             company_dv = rut_parts[1] if len(rut_parts) > 1 else 'K'
 
-            # 1. Sincronización de documentos DTEs históricos
-            documents_task_result = sync_sii_documents_full_history_task.delay(
-                company_rut=company_rut,
-                company_dv=company_dv,
-                user_email=user_email
-            )
+            # Lanzar tareas después del commit para asegurar que la empresa existe en BD
+            def launch_historical_sync():
+                # 1. Sincronización de documentos DTEs históricos
+                documents_task_result = sync_sii_documents_full_history_task.delay(
+                    company_rut=company_rut,
+                    company_dv=company_dv,
+                    user_email=user_email
+                )
 
-            # Crear tracker para documentos históricos
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=documents_task_result,
-                task_name='sync_sii_documents_full_history_task',
-                display_name='Sincronizando historial completo SII',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'full_history',
-                    'task_type': 'documents'
-                }
-            )
+                # Crear tracker para documentos históricos
+                BackgroundTaskTracker.create_for_task(
+                    company=company,
+                    task_result=documents_task_result,
+                    task_name='sync_sii_documents_full_history_task',
+                    display_name='Sincronizando historial completo SII',
+                    metadata={
+                        'company_id': company_id,
+                        'sync_type': 'full_history',
+                        'task_type': 'documents'
+                    }
+                )
 
-            # 2. Sincronización de formularios tributarios históricos
-            forms_task_result = sync_all_historical_forms_task.delay(
-                company_rut=company_rut,
-                company_dv=company_dv,
-                user_email=user_email,
-                form_type='f29'
-            )
+                # 2. Sincronización de formularios tributarios históricos
+                forms_task_result = sync_all_historical_forms_task.delay(
+                    company_rut=company_rut,
+                    company_dv=company_dv,
+                    user_email=user_email,
+                    form_type='f29'
+                )
 
-            # Crear tracker para formularios históricos
-            BackgroundTaskTracker.create_for_task(
-                company=company,
-                task_result=forms_task_result,
-                task_name='sync_all_historical_forms_task',
-                display_name='Sincronizando formularios históricos',
-                metadata={
-                    'company_id': company_id,
-                    'sync_type': 'full_history',
-                    'task_type': 'forms',
-                    'form_type': 'f29'
-                }
-            )
+                # Crear tracker para formularios históricos
+                BackgroundTaskTracker.create_for_task(
+                    company=company,
+                    task_result=forms_task_result,
+                    task_name='sync_all_historical_forms_task',
+                    display_name='Sincronizando formularios históricos',
+                    metadata={
+                        'company_id': company_id,
+                        'sync_type': 'full_history',
+                        'task_type': 'forms',
+                        'form_type': 'f29'
+                    }
+                )
+
+            transaction.on_commit(launch_historical_sync)
 
             return {
                 'status': 'success',
-                'message': 'Sincronización histórica completa iniciada',
-                'documents_task_id': documents_task_result.id,
-                'forms_task_id': forms_task_result.id
+                'message': 'Sincronización histórica completa programada',
+                'documents_task_id': None,  # Se asignará después del commit
+                'forms_task_id': None  # Se asignará después del commit
             }
 
         except Exception as e:
