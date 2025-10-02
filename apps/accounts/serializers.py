@@ -6,7 +6,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation
+from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation, PreLaunchSubscriber
 from apps.core.validators import validate_phone_number
 
 
@@ -626,3 +626,49 @@ class InvitationValidationSerializer(serializers.Serializer):
     invited_by = serializers.DictField()
     expires_at = serializers.DateTimeField()
     message = serializers.CharField(required=False)
+
+
+class PreLaunchSubscriberSerializer(serializers.ModelSerializer):
+    """
+    Serializer for PreLaunchSubscriber model
+    """
+    class Meta:
+        model = PreLaunchSubscriber
+        fields = ['id', 'email', 'created_at', 'notified', 'converted_to_user']
+        read_only_fields = ['id', 'created_at', 'notified', 'converted_to_user']
+
+    def validate_email(self, value):
+        """Validate email format and uniqueness"""
+        email = value.lower().strip()
+
+        # Check if email is already subscribed
+        if PreLaunchSubscriber.objects.filter(email=email).exists():
+            raise serializers.ValidationError(
+                "Este email ya está registrado en nuestra lista de pre-lanzamiento"
+            )
+
+        return email
+
+    def create(self, validated_data):
+        """Create subscriber with additional metadata from request"""
+        request = self.context.get('request')
+
+        # Get IP address
+        ip_address = None
+        if request:
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                ip_address = x_forwarded_for.split(',')[0]
+            else:
+                ip_address = request.META.get('REMOTE_ADDR')
+
+        # Get user agent
+        user_agent = ''
+        if request:
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+
+        validated_data['ip_address'] = ip_address
+        validated_data['user_agent'] = user_agent
+        validated_data['source'] = 'web'
+
+        return super().create(validated_data)

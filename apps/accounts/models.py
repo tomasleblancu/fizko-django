@@ -380,3 +380,85 @@ class TeamInvitation(TimeStampedModel):
             self.expires_at = timezone.now() + timezone.timedelta(days=7)
 
         super().save(*args, **kwargs)
+
+
+class PreLaunchSubscriber(TimeStampedModel):
+    """
+    Suscriptores del pre-lanzamiento de Fizko
+    """
+    email = models.EmailField(
+        unique=True,
+        validators=[EmailValidator()],
+        help_text="Email del suscriptor interesado en el pre-lanzamiento"
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="Dirección IP desde donde se registró"
+    )
+    user_agent = models.TextField(
+        blank=True,
+        help_text="User agent del navegador"
+    )
+    source = models.CharField(
+        max_length=100,
+        default='web',
+        help_text="Fuente de la suscripción (web, mobile, etc.)"
+    )
+    notified = models.BooleanField(
+        default=False,
+        help_text="Indica si ya se le notificó del lanzamiento"
+    )
+    notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha en que se le notificó del lanzamiento"
+    )
+    converted_to_user = models.BooleanField(
+        default=False,
+        help_text="Indica si el suscriptor se convirtió en usuario registrado"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pre_launch_subscription',
+        help_text="Usuario creado a partir de este suscriptor"
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text="Notas adicionales sobre el suscriptor"
+    )
+
+    class Meta:
+        db_table = 'pre_launch_subscribers'
+        verbose_name = 'Pre-Launch Subscriber'
+        verbose_name_plural = 'Pre-Launch Subscribers'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['notified', 'converted_to_user']),
+        ]
+
+    def __str__(self):
+        status = []
+        if self.notified:
+            status.append("Notificado")
+        if self.converted_to_user:
+            status.append("Convertido")
+        status_str = f" ({', '.join(status)})" if status else ""
+        return f"{self.email}{status_str}"
+
+    def mark_as_notified(self):
+        """Marca el suscriptor como notificado"""
+        self.notified = True
+        self.notified_at = timezone.now()
+        self.save(update_fields=['notified', 'notified_at'])
+
+    def mark_as_converted(self, user):
+        """Marca el suscriptor como convertido a usuario"""
+        self.converted_to_user = True
+        self.user = user
+        self.save(update_fields=['converted_to_user', 'user'])

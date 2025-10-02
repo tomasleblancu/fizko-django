@@ -11,14 +11,15 @@ from django.contrib.auth import authenticate
 from django.db import transaction
 from django.utils import timezone
 
-from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation
+from .models import User, UserProfile, Role, UserRole, VerificationCode, TeamInvitation, PreLaunchSubscriber
 from .serializers import (
     UserSerializer, UserProfileSerializer, RoleSerializer,
     UserRoleSerializer, CustomTokenObtainPairSerializer,
     UserRegistrationSerializer, ChangePasswordSerializer,
     ProfileUpdateSerializer, SendVerificationCodeSerializer,
     VerifyCodeSerializer, ResendVerificationCodeSerializer,
-    InviteToTeamSerializer, InvitationValidationSerializer
+    InviteToTeamSerializer, InvitationValidationSerializer,
+    PreLaunchSubscriberSerializer
 )
 from apps.core.permissions import IsOwnerOrReadOnly, IsCompanyMember
 
@@ -1076,3 +1077,54 @@ class InvitationValidationView(APIView):
                 'valid': False,
                 'message': 'Error interno del servidor'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PreLaunchSubscriberViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing pre-launch subscribers
+    Public endpoint for creating subscriptions (no auth required)
+    Admin endpoints require authentication
+    """
+    queryset = PreLaunchSubscriber.objects.all()
+    serializer_class = PreLaunchSubscriberSerializer
+
+    def get_permissions(self):
+        """
+        Allow public access to create, require authentication for everything else
+        """
+        if self.action == 'create':
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    def create(self, request, *args, **kwargs):
+        """
+        Subscribe to pre-launch notifications
+        Public endpoint - no authentication required
+        """
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        return Response({
+            'message': '¡Gracias por registrarte! Te notificaremos cuando estemos listos.',
+            'email': serializer.data['email']
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAdminUser])
+    def stats(self, request):
+        """
+        Get statistics about pre-launch subscribers
+        Admin only
+        """
+        total = PreLaunchSubscriber.objects.count()
+        notified = PreLaunchSubscriber.objects.filter(notified=True).count()
+        converted = PreLaunchSubscriber.objects.filter(converted_to_user=True).count()
+        pending = total - notified
+
+        return Response({
+            'total': total,
+            'notified': notified,
+            'converted': converted,
+            'pending': pending,
+            'conversion_rate': (converted / total * 100) if total > 0 else 0
+        })

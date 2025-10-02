@@ -6,7 +6,7 @@ from .views import (
     CustomTokenObtainPairView, UserViewSet, UserProfileViewSet,
     RoleViewSet, UserRoleViewSet, CurrentUserView, debug_user_permissions,
     VerificationView, SendVerificationCodeView, ResendVerificationCodeView,
-    verification_status, InvitationValidationView
+    verification_status, InvitationValidationView, PreLaunchSubscriberViewSet
 )
 
 app_name = 'accounts'
@@ -16,6 +16,7 @@ router.register('users', UserViewSet, basename='users')
 router.register('profiles', UserProfileViewSet, basename='profiles')
 router.register('roles', RoleViewSet, basename='roles')
 router.register('user-roles', UserRoleViewSet, basename='user-roles')
+router.register('pre-launch-subscribers', PreLaunchSubscriberViewSet, basename='pre-launch-subscribers')
 
 urlpatterns = [
     # Authentication endpoints

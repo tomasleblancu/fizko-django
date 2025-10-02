@@ -50,9 +50,13 @@
                             <div class="flex-grow-1">
                                 <div class="d-flex align-items-center mb-2">
                                     <h6 class="mb-0">{{ task.execution_order }}. {{ task.task_title }}</h6>
-                                    <span class="badge bg-{{ task.get_priority_display|lower == 'alta'|yesno:'danger,warning,secondary' }} ms-2">
-                                        {{ task.get_priority_display }}
-                                    </span>
+                                    {% if task.priority == 'high' %}
+                                        <span class="badge bg-danger ms-2">{{ task.get_priority_display }}</span>
+                                    {% elif task.priority == 'medium' %}
+                                        <span class="badge bg-warning ms-2">{{ task.get_priority_display }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary ms-2">{{ task.get_priority_display }}</span>
+                                    {% endif %}
                                     {% if not task.is_optional %}
                                         <span class="badge bg-info ms-2">Requerida</span>
                                     {% endif %}

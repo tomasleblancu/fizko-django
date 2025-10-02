@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, UserProfile, Role, UserRole, TeamInvitation
+from .models import User, UserProfile, Role, UserRole, TeamInvitation, PreLaunchSubscriber
 
 
 @admin.register(User)
@@ -63,3 +63,49 @@ class TeamInvitationAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related(
             'role', 'invited_by'
         ).prefetch_related('companies')
+
+
+@admin.register(PreLaunchSubscriber)
+class PreLaunchSubscriberAdmin(admin.ModelAdmin):
+    list_display = ('email', 'created_at', 'notified', 'notified_at', 'converted_to_user', 'user')
+    list_filter = ('notified', 'converted_to_user', 'source', 'created_at')
+    search_fields = ('email', 'ip_address', 'notes')
+    readonly_fields = ('created_at', 'updated_at', 'ip_address', 'user_agent')
+    ordering = ('-created_at',)
+
+    fieldsets = (
+        ('Información del Suscriptor', {
+            'fields': ('email', 'source', 'ip_address', 'user_agent')
+        }),
+        ('Estado', {
+            'fields': ('notified', 'notified_at', 'converted_to_user', 'user')
+        }),
+        ('Notas', {
+            'fields': ('notes',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    actions = ['mark_as_notified', 'export_emails']
+
+    def mark_as_notified(self, request, queryset):
+        """Marcar suscriptores seleccionados como notificados"""
+        count = 0
+        for subscriber in queryset.filter(notified=False):
+            subscriber.mark_as_notified()
+            count += 1
+        self.message_user(request, f'{count} suscriptores marcados como notificados.')
+    mark_as_notified.short_description = 'Marcar como notificados'
+
+    def export_emails(self, request, queryset):
+        """Exportar emails de suscriptores seleccionados"""
+        emails = queryset.values_list('email', flat=True)
+        emails_str = ', '.join(emails)
+        self.message_user(request, f'Emails: {emails_str}')
+    export_emails.short_description = 'Exportar emails'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user')
