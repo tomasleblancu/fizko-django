@@ -6,12 +6,13 @@ from rest_framework.decorators import api_view, permission_classes
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
-from .models import OnboardingStep, UserOnboarding, OnboardingProgress
+from .models import OnboardingStep, UserOnboarding
+# OnboardingProgress temporalmente deshabilitado (vista de BD no existe)
 from apps.accounts.models import UserProfile
 from .serializers import (
     OnboardingStepSerializer,
     UserOnboardingSerializer,
-    OnboardingProgressSerializer,
+    # OnboardingProgressSerializer,  # Disabled
     CompleteStepSerializer
 )
 
@@ -717,15 +718,16 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
         })
 
 
-class OnboardingProgressViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet para ver el progreso de onboarding (solo lectura)
-    """
-    serializer_class = OnboardingProgressSerializer
-    permission_classes = [IsAuthenticated]
+# class OnboardingProgressViewSet(viewsets.ReadOnlyModelViewSet):
+#     """
+#     ViewSet para ver el progreso de onboarding (solo lectura)
+#     DISABLED: OnboardingProgress modelo no existe
+#     """
+#     serializer_class = OnboardingProgressSerializer
+#     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        return OnboardingProgress.objects.filter(user=self.request.user)
+#     def get_queryset(self):
+#         return OnboardingProgress.objects.filter(user=self.request.user)
 
 
 @api_view(['POST'])

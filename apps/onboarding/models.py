@@ -77,29 +77,30 @@ class UserOnboarding(TimeStampedModel):
         self.save()
 
 
-class OnboardingProgress(models.Model):
-    """
-    Vista del progreso general de onboarding
-    """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='onboarding_progress',
-        null=True,
-        blank=True
-    )
-    user_email = models.EmailField(unique=True)  # Mantener por compatibilidad, pero deprecated
-    total_steps = models.IntegerField(default=0)
-    completed_steps = models.IntegerField(default=0)
-    progress_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    is_completed = models.BooleanField(default=False)
-    last_activity = models.DateTimeField(auto_now=True)
+# class OnboardingProgress(models.Model):
+#     """
+#     Vista del progreso general de onboarding
+#     DISABLED: Vista de BD no existe aún
+#     """
+#     user = models.OneToOneField(
+#         settings.AUTH_USER_MODEL,
+#         on_delete=models.CASCADE,
+#         related_name='onboarding_progress',
+#         null=True,
+#         blank=True
+#     )
+#     user_email = models.EmailField(unique=True)  # Mantener por compatibilidad, pero deprecated
+#     total_steps = models.IntegerField(default=0)
+#     completed_steps = models.IntegerField(default=0)
+#     progress_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+#     is_completed = models.BooleanField(default=False)
+#     last_activity = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        db_table = 'onboarding_progress'
-        verbose_name = 'Onboarding Progress'
-        verbose_name_plural = 'Onboarding Progress'
-        managed = False  # Será una vista de base de datos
+#     class Meta:
+#         db_table = 'onboarding_progress'
+#         verbose_name = 'Onboarding Progress'
+#         verbose_name_plural = 'Onboarding Progress'
+#         managed = False  # Será una vista de base de datos
 
-    def __str__(self):
-        return f"{self.user.email if self.user else self.user_email} - {self.progress_percentage}% completado"
+#     def __str__(self):
+#         return f"{self.user.email if self.user else self.user_email} - {self.progress_percentage}% completado"

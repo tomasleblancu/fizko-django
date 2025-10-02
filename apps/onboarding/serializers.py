@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import OnboardingStep, UserOnboarding, OnboardingProgress
+from .models import OnboardingStep, UserOnboarding
+# OnboardingProgress temporalmente deshabilitado
 
 
 class OnboardingStepSerializer(serializers.ModelSerializer):
@@ -51,20 +52,21 @@ class UserOnboardingSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class OnboardingProgressSerializer(serializers.ModelSerializer):
-    """
-    Serializer para el progreso de onboarding
-    """
-    class Meta:
-        model = OnboardingProgress
-        fields = [
-            'user_email',
-            'total_steps',
-            'completed_steps',
-            'progress_percentage',
-            'is_completed',
-            'last_activity'
-        ]
+# class OnboardingProgressSerializer(serializers.ModelSerializer):
+#     """
+#     Serializer para el progreso de onboarding
+#     DISABLED: OnboardingProgress modelo no existe
+#     """
+#     class Meta:
+#         model = OnboardingProgress
+#         fields = [
+#             'user_email',
+#             'total_steps',
+#             'completed_steps',
+#             'progress_percentage',
+#             'is_completed',
+#             'last_activity'
+#         ]
 
 
 class CompleteStepSerializer(serializers.Serializer):
