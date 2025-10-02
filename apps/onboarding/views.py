@@ -114,13 +114,50 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
             'completed_at': timezone.now()
         })
     
+    @action(detail=False, methods=['get'])
+    def debug_steps(self, request):
+        """
+        DEBUG: Mostrar todos los pasos del usuario para debugging
+        """
+        steps = UserOnboarding.objects.filter(user=request.user).order_by('step__step_order')
+
+        debug_info = {
+            'user_email': request.user.email,
+            'total_steps': steps.count(),
+            'steps': []
+        }
+
+        for step in steps:
+            debug_info['steps'].append({
+                'name': step.step.name,
+                'title': step.step.title,
+                'status': step.status,
+                'has_data': bool(step.step_data),
+                'data_keys': list(step.step_data.keys()) if step.step_data else [],
+                'created_at': step.created_at,
+                'completed_at': step.completed_at
+            })
+
+        # Buscar específicamente el paso company
+        company_step = UserOnboarding.objects.filter(
+            user=request.user,
+            step__name='company'
+        ).first()
+
+        debug_info['company_step_found'] = company_step is not None
+        if company_step:
+            debug_info['company_step_status'] = company_step.status
+            debug_info['company_step_data'] = company_step.step_data
+
+        return Response(debug_info)
+
     @action(detail=False, methods=['post'])
     def finalize(self, request):
         """
         Finaliza el onboarding asegurándose de que la empresa esté creada
         SEGURIDAD: Siempre verifica credenciales antes de asignar empresa
         """
-        
+
         try:
             # Buscar datos del paso de empresa completado
             company_step_data = UserOnboarding.objects.filter(
@@ -128,12 +165,26 @@ class UserOnboardingViewSet(viewsets.ModelViewSet):
                 step__name='company',
                 status='completed'
             ).first()
-            
+
             if not company_step_data or not company_step_data.step_data:
+                # DEBUG: Obtener información adicional para debugging
+                all_steps = UserOnboarding.objects.filter(user=request.user)
+                debug_info = {
+                    'total_steps': all_steps.count(),
+                    'steps_info': [
+                        {
+                            'name': s.step.name,
+                            'status': s.status,
+                            'has_data': bool(s.step_data)
+                        } for s in all_steps
+                    ]
+                }
+
                 return Response({
                     'error': 'NO_COMPANY_DATA',
                     'message': 'No se encontraron datos de empresa en el onboarding. Complete el paso de empresa primero.',
-                    'required_fields': ['business_name', 'tax_id', 'password', 'email']
+                    'required_fields': ['business_name', 'tax_id', 'password', 'email'],
+                    'debug': debug_info
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # PASO CRÍTICO DE SEGURIDAD: Verificar credenciales ANTES de cualquier operación
